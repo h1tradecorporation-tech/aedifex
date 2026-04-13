@@ -15,6 +15,46 @@ const THUMBNAIL_WIDTH = 1920
 const THUMBNAIL_HEIGHT = 1080
 const AUTO_SAVE_DELAY = 10_000
 
+/** Minimum number of meaningful scene nodes (walls/items/doors/windows) to justify a thumbnail */
+const MIN_SCENE_NODES = 1
+
+/** Sampling grid size for canvas validity check */
+const SAMPLE_GRID = 8
+
+/**
+ * Check if a rendered canvas contains a meaningful image.
+ * Samples pixels on a grid and rejects images that are nearly uniform
+ * (all black, all white, or single-color), which indicates a render failure.
+ */
+function isCanvasContentValid(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return false
+
+  const { width, height } = canvas
+  const stepX = Math.floor(width / SAMPLE_GRID)
+  const stepY = Math.floor(height / SAMPLE_GRID)
+  const samples: number[] = []
+
+  for (let y = 0; y < SAMPLE_GRID; y++) {
+    for (let x = 0; x < SAMPLE_GRID; x++) {
+      const pixel = ctx.getImageData(x * stepX, y * stepY, 1, 1).data
+      // Luminance approximation (Uint8ClampedArray always has RGBA for 1×1 pixel)
+      const r = pixel[0] ?? 0
+      const g = pixel[1] ?? 0
+      const b = pixel[2] ?? 0
+      samples.push(r * 0.299 + g * 0.587 + b * 0.114)
+    }
+  }
+
+  // Check variance: if all samples are nearly identical, the image is uniform
+  const mean = samples.reduce((a, b) => a + b, 0) / samples.length
+  const variance = samples.reduce((sum, v) => sum + (v - mean) ** 2, 0) / samples.length
+
+  // A meaningful 3D scene should have some color variation (walls, shadows, etc.)
+  // Variance < 5 means essentially a flat color (failed render)
+  return variance > 5
+}
+
 // Re-export captureScreenshot from viewer with editor-specific defaults
 export { captureScreenshot } from '@aedifex/viewer'
 
@@ -53,6 +93,15 @@ export const ThumbnailGenerator = ({ onThumbnailCapture }: ThumbnailGeneratorPro
     isGenerating.current = true
 
     try {
+      // Skip thumbnail generation if the scene has no meaningful content
+      const nodes = useScene.getState().nodes
+      const meaningfulTypes = new Set(['wall', 'item', 'door', 'window', 'slab', 'ceiling', 'roof', 'stair'])
+      const meaningfulCount = Object.values(nodes).filter((n) => meaningfulTypes.has(n.type)).length
+      if (meaningfulCount < MIN_SCENE_NODES) {
+        isGenerating.current = false
+        return
+      }
+
       const thumbnailCamera = new THREE.PerspectiveCamera(
         60,
         THUMBNAIL_WIDTH / THUMBNAIL_HEIGHT,
@@ -60,7 +109,6 @@ export const ThumbnailGenerator = ({ onThumbnailCapture }: ThumbnailGeneratorPro
         1000,
       )
 
-      const nodes = useScene.getState().nodes
       const siteNode = Object.values(nodes).find((n) => n.type === 'site')
 
       if (siteNode?.camera) {
@@ -117,6 +165,12 @@ export const ThumbnailGenerator = ({ onThumbnailCapture }: ThumbnailGeneratorPro
       offscreen.height = THUMBNAIL_HEIGHT
       const ctx = offscreen.getContext('2d')!
       ctx.drawImage(gl.domElement, sx, sy, sWidth, sHeight, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+
+      // Validate rendered image: reject flat/corrupt renders (all black, all white, etc.)
+      if (!isCanvasContentValid(offscreen)) {
+        isGenerating.current = false
+        return
+      }
 
       offscreen.toBlob((blob) => {
         if (blob) {
