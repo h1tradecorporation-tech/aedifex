@@ -52,7 +52,7 @@ const PostProcessingPasses = () => {
   const renderPipelineRef = useRef<RenderPipeline | null>(null)
   const hasPipelineErrorRef = useRef(false)
   const retryCountRef = useRef(0)
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   const [isWebGPU, setIsWebGPU] = useState<boolean | null>(null)
 
@@ -78,6 +78,11 @@ const PostProcessingPasses = () => {
   const [pipelineVersion, setPipelineVersion] = useState(0)
 
   const requestPipelineRebuild = useCallback(() => {
+    if (rebuildTimeoutRef.current !== null) {
+      clearTimeout(rebuildTimeoutRef.current)
+      rebuildTimeoutRef.current = null
+    }
+
     setPipelineVersion((v) => v + 1)
   }, [])
 
@@ -122,16 +127,34 @@ const PostProcessingPasses = () => {
     }
   }, [renderer])
 
-  // Reset retry count when project changes & clean up retry timer on unmount
+  // Reset retry state when project changes
   useEffect(() => {
+    // Intentionally touch projectId so the effect reruns on project switches.
+    void projectId
     retryCountRef.current = 0
+    if (rebuildTimeoutRef.current !== null) {
+      clearTimeout(rebuildTimeoutRef.current)
+      rebuildTimeoutRef.current = null
+    }
+  }, [projectId])
+
+  // Clean up rebuild timeout on unmount
+  useEffect(() => {
     return () => {
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+      if (rebuildTimeoutRef.current !== null) {
+        clearTimeout(rebuildTimeoutRef.current)
+        rebuildTimeoutRef.current = null
+      }
     }
   }, [])
 
   // Build / rebuild the post-processing pipeline — WebGPU only
   useEffect(() => {
+    // Intentionally touch these so React/biome treat project switches and retry bumps
+    // as explicit rebuild triggers instead of accidental extra dependencies.
+    void projectId
+    void pipelineVersion
+
     // Skip pipeline entirely on WebGL2 — R3F's default render loop handles basic rendering
     if (!(renderer && scene && camera && isInitialized && isWebGPU)) {
       return
@@ -266,6 +289,7 @@ const PostProcessingPasses = () => {
       const renderPipeline = new RenderPipeline(renderer as unknown as WebGPURenderer)
       renderPipeline.outputNode = finalOutput
       renderPipelineRef.current = renderPipeline
+      retryCountRef.current = 0
     } catch (error) {
       hasPipelineErrorRef.current = true
       console.error(
@@ -284,7 +308,16 @@ const PostProcessingPasses = () => {
       }
       renderPipelineRef.current = null
     }
-  }, [renderer, scene, camera, hoverHighlightMode, isInitialized, zoneLayers])
+  }, [
+    renderer,
+    scene,
+    camera,
+    hoverHighlightMode,
+    isInitialized,
+    zoneLayers,
+    projectId,
+    pipelineVersion,
+  ])
 
   useFrame((_, delta) => {
     // WebGL2 backend — skip post-processing, let R3F handle basic rendering
@@ -296,6 +329,14 @@ const PostProcessingPasses = () => {
     bgUniform.current.value.copy(bgCurrent.current)
 
     if (hasPipelineErrorRef.current || !renderPipelineRef.current) {
+      try {
+        if ((renderer as any).setClearAlpha) {
+          ;(renderer as any).setClearAlpha(1)
+        }
+        ;(renderer as any).render(scene, camera)
+      } catch (fallbackError) {
+        console.error('[viewer] Fallback render failed.', fallbackError)
+      }
       return
     }
 
@@ -318,11 +359,10 @@ const PostProcessingPasses = () => {
         console.warn(
           `[viewer] Scheduling post-processing rebuild (attempt ${retryCountRef.current}/${MAX_PIPELINE_RETRIES})`,
         )
-        if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
-        retryTimerRef.current = setTimeout(() => {
-          retryTimerRef.current = null
-          requestPipelineRebuild()
-        }, RETRY_DELAY_MS)
+        if (rebuildTimeoutRef.current !== null) {
+          clearTimeout(rebuildTimeoutRef.current)
+        }
+        rebuildTimeoutRef.current = setTimeout(requestPipelineRebuild, RETRY_DELAY_MS)
       } else {
         console.error(
           '[viewer] Post-processing retries exhausted. Rendering without post FX for this session.',
