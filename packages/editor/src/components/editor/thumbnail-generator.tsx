@@ -11,8 +11,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { EDITOR_LAYER } from '../../lib/constants'
 
-const THUMBNAIL_WIDTH = 1920
-const THUMBNAIL_HEIGHT = 1080
+const THUMBNAIL_WIDTH = 640
+const THUMBNAIL_HEIGHT = 360
 const AUTO_SAVE_DELAY = 10_000
 
 /** Minimum number of meaningful scene nodes (walls/items/doors/windows) to justify a thumbnail */
@@ -179,7 +179,7 @@ export const ThumbnailGenerator = ({ onThumbnailCapture }: ThumbnailGeneratorPro
           console.error('❌ Failed to create blob from canvas')
         }
         isGenerating.current = false
-      }, 'image/png')
+      }, 'image/jpeg', 0.8)
     } catch (error) {
       console.error('❌ Failed to generate thumbnail:', error)
       isGenerating.current = false
