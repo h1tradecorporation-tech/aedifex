@@ -71,7 +71,7 @@ export function hasWallChildOverlap(
   const newLeft = clampedX - halfW
   const newRight = clampedX + halfW
 
-  for (const childId of wallNode.children) {
+  for (const childId of Array.isArray(wallNode.children) ? wallNode.children : []) {
     if (childId === ignoreId) continue
     // Skip nodes pending removal in the same batch (remove+add mixed batch)
     if (ignoreIds?.has(childId)) continue

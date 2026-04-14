@@ -26,6 +26,7 @@ const isNodeInCurrentLevel = (node: AnyNode): boolean => {
 
 type SelectableNodeType =
   | 'wall'
+  | 'fence'
   | 'item'
   | 'building'
   | 'zone'
@@ -184,6 +185,7 @@ const SELECTION_STRATEGIES: Record<string, SelectionStrategy> = {
   structure: {
     types: [
       'wall',
+      'fence',
       'item',
       'zone',
       'slab',
@@ -236,6 +238,7 @@ const SELECTION_STRATEGIES: Record<string, SelectionStrategy> = {
       }
       if (
         node.type === 'wall' ||
+        node.type === 'fence' ||
         node.type === 'slab' ||
         node.type === 'ceiling' ||
         node.type === 'roof' ||
@@ -297,6 +300,7 @@ const getSelectionTarget = (node: AnyNode): SelectionTarget | null => {
 
   if (
     node.type === 'wall' ||
+    node.type === 'fence' ||
     node.type === 'slab' ||
     node.type === 'ceiling' ||
     node.type === 'roof' ||
@@ -451,6 +455,7 @@ export const SelectionManager = () => {
 
     const allTypes = [
       'wall',
+      'fence',
       'item',
       'building',
       'zone',
@@ -545,6 +550,7 @@ export const SelectionManager = () => {
         }
       } else if (
         node.type === 'wall' ||
+        node.type === 'fence' ||
         node.type === 'slab' ||
         node.type === 'ceiling' ||
         node.type === 'roof' ||
@@ -594,6 +600,7 @@ export const SelectionManager = () => {
 
     const allTypes = [
       'wall',
+      'fence',
       'item',
       'building',
       'slab',
@@ -665,6 +672,7 @@ export const SelectionManager = () => {
 
     const allTypes = [
       'wall',
+      'fence',
       'item',
       'slab',
       'ceiling',
