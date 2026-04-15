@@ -19,7 +19,7 @@ Create `apps/editor/.env.local`:
 
 ```bash
 # AI Assistant (optional — powers the AI chat feature)
-AI_API_KEY=<your_anthropic_api_key>
+AI_API_KEY=<your_openai_compatible_api_key>
 
 # Google Maps (optional — for address search)
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<your_google_maps_key>
