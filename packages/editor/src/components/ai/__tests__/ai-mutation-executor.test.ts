@@ -156,7 +156,7 @@ describe('validateToolCall — add_item', () => {
       name: 'Existing',
       position: [2, 0, 3],
       rotation: [0, 0, 0],
-      asset: { dimensions: [1, 1, 1] },
+      asset: { id: 'generic-item', name: 'Generic Item', category: 'furniture', dimensions: [1, 1, 1], src: '', thumbnail: '', scale: [1, 1, 1], offset: [0, 0, 0], rotation: [0, 0, 0] },
     }
 
     const call: AddItemToolCall = {
@@ -185,7 +185,7 @@ describe('validateToolCall — remove_item', () => {
       name: 'Test Item',
       position: [0, 0, 0],
       rotation: [0, 0, 0],
-      asset: { id: 'sofa-modern', dimensions: [2, 1, 1] },
+      asset: { id: 'sofa-modern', name: 'Modern Sofa', category: 'furniture', dimensions: [2, 1, 1], src: '', thumbnail: '', scale: [1, 1, 1], offset: [0, 0, 0], rotation: [0, 0, 0] },
     }
 
     const call: RemoveItemToolCall = {
@@ -248,7 +248,7 @@ describe('validateToolCall — move_item', () => {
       name: 'Test Item 2',
       position: [0, 0, 0],
       rotation: [0, 0, 0],
-      asset: { id: 'dining-table', dimensions: [1.6, 0.75, 0.9] },
+      asset: { id: 'dining-table', name: 'Dining Table', category: 'furniture', dimensions: [1.6, 0.75, 0.9], src: '', thumbnail: '', scale: [1, 1, 1], offset: [0, 0, 0], rotation: [0, 0, 0] },
     }
 
     const call: MoveItemToolCall = {
@@ -323,7 +323,7 @@ describe('validateAllToolCalls — batch operations', () => {
       name: 'To Delete',
       position: [0, 0, 0],
       rotation: [0, 0, 0],
-      asset: { id: 'sofa-modern', dimensions: [2, 1, 1] },
+      asset: { id: 'sofa-modern', name: 'Modern Sofa', category: 'furniture', dimensions: [2, 1, 1], src: '', thumbnail: '', scale: [1, 1, 1], offset: [0, 0, 0], rotation: [0, 0, 0] },
     }
 
     const batch: BatchOperationsToolCall = {
