@@ -6,7 +6,7 @@ export type WallPlanPoint = [number, number]
 
 export const WALL_GRID_STEP = 0.5
 export const WALL_JOIN_SNAP_RADIUS = 0.35
-export const WALL_MIN_LENGTH = 0.01
+export const WALL_MIN_LENGTH = 0.5
 
 function distanceSquared(a: WallPlanPoint, b: WallPlanPoint): number {
   const dx = a[0] - b[0]
