@@ -214,7 +214,8 @@ function enforceZoneBoundaryPostOptimize(op: ValidatedOperation, _wallCache?: Ma
   if (op.status === 'invalid') return op
   if (op.type !== 'add_item' && op.type !== 'move_item') return op
 
-  const levelId = useViewer.getState().selection.levelId
+  // Use the operation's resolved levelId (set during validation) for correct cross-level support
+  const levelId = op.levelId ?? useViewer.getState().selection.levelId
   if (!levelId) return op
 
   let dimensions: [number, number, number]
@@ -348,7 +349,7 @@ function resolveBatchCollisions(operations: ValidatedOperation[]): ValidatedOper
 
       // Re-check wall collision after batch push — items pushed to avoid
       // overlapping siblings may have been pushed into walls.
-      const levelId = useViewer.getState().selection.levelId
+      const levelId = op.levelId ?? useViewer.getState().selection.levelId
       if (levelId) {
         const wallCollision = checkWallCollision(position, dims, op.rotation, levelId)
         if (wallCollision === 'no-space') {

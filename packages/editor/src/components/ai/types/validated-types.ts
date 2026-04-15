@@ -13,6 +13,8 @@ export interface ValidatedAddItem {
   asset?: AssetInput
   position: [number, number, number]
   rotation: [number, number, number]
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -30,6 +32,8 @@ export interface ValidatedMoveItem {
   nodeId: AnyNodeId
   position: [number, number, number]
   rotation: [number, number, number]
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -49,6 +53,8 @@ export interface ValidatedAddWall {
   end: [number, number]
   thickness: number
   height?: number
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -151,6 +157,8 @@ export interface ValidatedAddSlab {
   polygon: [number, number][]
   elevation: number
   holes: [number, number][][]
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -170,6 +178,8 @@ export interface ValidatedAddCeiling {
   polygon: [number, number][]
   height: number
   material?: string
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -193,6 +203,8 @@ export interface ValidatedAddRoof {
   roofHeight: number
   wallHeight: number
   overhang: number
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -206,6 +218,8 @@ export interface ValidatedAddStair {
   length: number
   height: number
   stepCount: number
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }
@@ -241,6 +255,8 @@ export interface ValidatedAddZone {
   status: ValidatedOperationStatus
   polygon: [number, number][]
   name?: string
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
   adjustmentReason?: string
   errorReason?: string
 }

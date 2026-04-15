@@ -7,6 +7,8 @@ export interface AddItemToolCall {
   catalogSlug: string
   position: [number, number, number]
   rotationY: number
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 
@@ -21,6 +23,8 @@ export interface MoveItemToolCall {
   nodeId: string
   position: [number, number, number]
   rotationY?: number
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   reason?: string
 }
 
@@ -37,6 +41,8 @@ export interface AddWallToolCall {
   end: [number, number]
   thickness?: number
   height?: number
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 
@@ -118,6 +124,8 @@ export interface AddSlabToolCall {
   polygon: [number, number][]
   elevation?: number
   holes?: [number, number][][]
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 
@@ -134,6 +142,8 @@ export interface AddCeilingToolCall {
   polygon: [number, number][]
   height?: number
   material?: string
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 
@@ -154,6 +164,8 @@ export interface AddRoofToolCall {
   roofHeight?: number
   wallHeight?: number
   overhang?: number
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 
@@ -176,6 +188,8 @@ export interface AddStairToolCall {
   length?: number
   height?: number
   stepCount?: number
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 
@@ -195,6 +209,8 @@ export interface AddZoneToolCall {
   tool: 'add_zone'
   polygon: [number, number][]
   name?: string
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
   description?: string
 }
 

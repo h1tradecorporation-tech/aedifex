@@ -13,6 +13,7 @@ import type {
   ValidatedUpdateWall,
 } from '../types'
 import { computeCollinearOverlap, wallsCrossThrough } from './collision-detection'
+import { resolveEffectiveLevelId } from './spatial-queries'
 import { getLevelHeightContext, getWallsForLevel } from './spatial-queries'
 
 // ============================================================================
@@ -27,11 +28,15 @@ export function validateAddWall(call: AddWallToolCall, wallCache?: Map<string, W
   const end = [...call.end] as [number, number]
   const thickness = call.thickness ?? 0.2
 
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  // This enables multi-level batch operations where the AI specifies target levels.
+  const effectiveLevelId = resolveEffectiveLevelId(call.levelId)
+
   // If height not specified, inherit from existing walls on this level.
   // Prevents mismatched wall heights (e.g., outer walls 3m, partition wall defaulting to 2.8m).
   let height = call.height
   if (height === undefined) {
-    const levelId = useViewer.getState().selection.levelId
+    const levelId = effectiveLevelId
     if (levelId) {
       const existingWalls = getWallsForLevel(levelId, wallCache)
       if (existingWalls.length > 0) {
@@ -82,7 +87,7 @@ export function validateAddWall(call: AddWallToolCall, wallCache?: Map<string, W
   }
 
   // Check for duplicate or overlapping walls
-  const levelId = useViewer.getState().selection.levelId
+  const levelId = effectiveLevelId
   if (levelId) {
     const existingWalls = getWallsForLevel(levelId, wallCache)
     const DUPLICATE_TOLERANCE = 0.3 // meters
@@ -157,6 +162,7 @@ export function validateAddWall(call: AddWallToolCall, wallCache?: Map<string, W
     end: snappedEnd,
     thickness,
     height,
+    levelId: effectiveLevelId ?? undefined,
     adjustmentReason: wasAdjusted ? 'Snapped to 0.5m grid.' : undefined,
   }
 }

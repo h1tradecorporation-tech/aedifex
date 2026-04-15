@@ -122,7 +122,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           position: op.position,
           rotation: op.rotation,
         })
-        batchCreates.push({ node: finalNode, parentId: levelId as AnyNodeId })
+        batchCreates.push({ node: finalNode, parentId: (op.levelId ?? levelId) as AnyNodeId })
         affectedNodeIds.push(finalNode.id as AnyNodeId)
         createdNodeIds.push(finalNode.id as AnyNodeId)
         break
@@ -136,7 +136,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           ...(op.thickness !== 0.2 ? { thickness: op.thickness } : {}),
           ...(op.height ? { height: op.height } : {}),
         })
-        batchCreates.push({ node: wall, parentId: levelId as AnyNodeId })
+        batchCreates.push({ node: wall, parentId: (op.levelId ?? levelId) as AnyNodeId })
         affectedNodeIds.push(wall.id as AnyNodeId)
         createdNodeIds.push(wall.id as AnyNodeId)
         break
@@ -287,7 +287,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           elevation: slabOp.elevation,
           holes: slabOp.holes,
         })
-        useScene.getState().createNode(slabNode, levelId as AnyNodeId)
+        useScene.getState().createNode(slabNode, (slabOp.levelId ?? levelId) as AnyNodeId)
         affectedNodeIds.push(slabNode.id as AnyNodeId)
         createdNodeIds.push(slabNode.id as AnyNodeId)
         break
@@ -309,7 +309,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           height: ceilOp.height,
           ...(ceilOp.material ? { material: ceilOp.material } : {}),
         })
-        useScene.getState().createNode(ceilNode, levelId as AnyNodeId)
+        useScene.getState().createNode(ceilNode, (ceilOp.levelId ?? levelId) as AnyNodeId)
         affectedNodeIds.push(ceilNode.id as AnyNodeId)
         createdNodeIds.push(ceilNode.id as AnyNodeId)
         break
@@ -342,7 +342,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
         })
         const { createNodes } = useScene.getState()
         createNodes([
-          { node: roof, parentId: levelId as AnyNodeId },
+          { node: roof, parentId: (roofOp.levelId ?? levelId) as AnyNodeId },
           { node: segment, parentId: roof.id as AnyNodeId },
         ])
         affectedNodeIds.push(roof.id as AnyNodeId, segment.id as AnyNodeId)
@@ -370,7 +370,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
         })
         const { createNodes } = useScene.getState()
         createNodes([
-          { node: stair, parentId: levelId as AnyNodeId },
+          { node: stair, parentId: (stairOp.levelId ?? levelId) as AnyNodeId },
           { node: segment, parentId: stair.id as AnyNodeId },
         ])
         affectedNodeIds.push(stair.id as AnyNodeId, segment.id as AnyNodeId)
@@ -421,7 +421,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           name: zoneOp.name ?? `Zone ${getCachedTypeCount('zone') + 1}`,
           polygon: zoneOp.polygon,
         })
-        useScene.getState().createNode(zoneNode, levelId as AnyNodeId)
+        useScene.getState().createNode(zoneNode, (zoneOp.levelId ?? levelId) as AnyNodeId)
         affectedNodeIds.push(zoneNode.id as AnyNodeId)
         createdNodeIds.push(zoneNode.id as AnyNodeId)
         break

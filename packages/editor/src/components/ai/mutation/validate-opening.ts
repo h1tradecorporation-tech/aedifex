@@ -50,15 +50,19 @@ export function validateAddDoor(call: AddDoorToolCall, _wallCache?: Map<string, 
   const { clampedX, clampedY } = clampToWall(wallNode, call.positionAlongWall, width, height)
 
   // Avoid T-junction conflicts (perpendicular walls)
-  const levelId = useViewer.getState().selection.levelId
+  // Derive level from wall's parent chain for accuracy, fallback to viewer selection
+  const doorLevelId = (() => {
+    const parent = nodes[wallNode.parentId as AnyNodeId]
+    return parent?.type === 'level' ? wallNode.parentId : null
+  })() ?? useViewer.getState().selection.levelId
   let finalX = clampedX
   let junctionAdjusted = false
   let junctionReason: string | undefined
-  if (levelId) {
+  if (doorLevelId) {
     const wallDx = wallNode.end[0] - wallNode.start[0]
     const wallDz = wallNode.end[1] - wallNode.start[1]
     const wallLength = Math.hypot(wallDx, wallDz)
-    const junctions = findJunctionPositions(wallNode, levelId)
+    const junctions = findJunctionPositions(wallNode, doorLevelId)
     const result = avoidJunctions(finalX, width / 2, wallLength, junctions)
     finalX = result.adjustedPosition
     junctionAdjusted = result.wasAdjusted
@@ -139,7 +143,11 @@ export function validateAddWindow(call: AddWindowToolCall, _wallCache?: Map<stri
   const clampedY = Math.max(height / 2, Math.min(wallHeight - height / 2, defaultCenterY))
 
   // Avoid T-junction conflicts (perpendicular walls)
-  const winLevelId = useViewer.getState().selection.levelId
+  // Derive level from wall's parent chain for accuracy, fallback to viewer selection
+  const winLevelId = (() => {
+    const parent = nodes[wallNode.parentId as AnyNodeId]
+    return parent?.type === 'level' ? wallNode.parentId : null
+  })() ?? useViewer.getState().selection.levelId
   let finalWinX = clampedX
   let winJunctionAdjusted = false
   let winJunctionReason: string | undefined

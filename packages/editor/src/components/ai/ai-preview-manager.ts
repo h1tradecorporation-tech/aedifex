@@ -42,8 +42,8 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
   }
 
   const { nodes } = useScene.getState()
-  const levelId = useViewer.getState().selection.levelId
-  if (!levelId) return []
+  const viewerLevelId = useViewer.getState().selection.levelId
+  if (!viewerLevelId) return []
 
   // Pause undo tracking — ghost nodes are transient
   useScene.temporal.getState().pause()
@@ -56,12 +56,12 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
 
     switch (op.type) {
       case 'add_item': {
-        const id = createGhostNode(op, levelId)
+        const id = createGhostNode(op, (op.levelId ?? viewerLevelId) as string)
         if (id) affectedIds.push(id)
         break
       }
       case 'add_wall': {
-        const id = createGhostWall(op, levelId)
+        const id = createGhostWall(op, (op.levelId ?? viewerLevelId) as string)
         if (id) affectedIds.push(id)
         break
       }

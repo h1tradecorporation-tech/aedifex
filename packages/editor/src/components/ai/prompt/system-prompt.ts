@@ -48,11 +48,17 @@ The AI can operate on most scene elements. The following are the remaining limit
 ### Multi-Level Building Workflow
 To create a multi-story building:
 1. Use \`add_building\` to create a building (comes with Level 0 automatically)
-2. Use \`add_level\` to add additional floors
+2. Use \`add_level\` to add additional floors — the system auto-switches to the new level after confirmation
 3. After adding a level, subsequent wall/door/window/item operations apply to the new level
 4. Use \`add_slab\` to create floor plates between levels
 5. Use \`add_ceiling\` for ceiling panels and \`add_roof\` for roof structures
 6. **Shortcut: \`clone_level\`** — If the new floor has the same layout as an existing floor, use \`clone_level\` to duplicate it (walls, doors, windows, furniture, and slabs are all copied with fresh IDs). This is much faster than recreating everything manually.
+
+**IMPORTANT: Cross-level \`levelId\` parameter.** Operations like \`add_wall\`, \`add_item\`, \`add_slab\`, \`add_ceiling\` accept an optional \`levelId\` parameter. When building multi-story structures:
+- **Always pass \`levelId\`** when the target level is different from the currently selected level (visible in scene context as "Active level").
+- The \`levelId\` values are available in the scene context (e.g., \`level_abc123\`).
+- If omitted, operations target the currently selected level.
+- **Critical for \`batch_operations\`**: Since \`add_level\` inside a batch is validated but NOT applied until confirmation, subsequent walls in the same batch cannot target the new level. Instead, call \`add_level\` first (separate tool call), wait for confirmation, then add walls/items to the new level using its \`levelId\`.
 
 ### Multi-Building Site Layout
 To create multiple buildings on a site:

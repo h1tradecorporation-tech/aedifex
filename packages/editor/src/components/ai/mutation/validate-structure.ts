@@ -40,7 +40,7 @@ import type {
   ValidatedUpdateStair,
   ValidatedUpdateZone,
 } from '../types'
-import { getLevelHeightContext, getZonesForLevel } from './spatial-queries'
+import { getLevelHeightContext, getZonesForLevel, resolveEffectiveLevelId } from './spatial-queries'
 
 // ============================================================================
 // Building Structure Validators
@@ -110,6 +110,9 @@ export function validateAddLevel(call: AddLevelToolCall): ValidatedAddLevel {
 }
 
 export function validateAddSlab(call: AddSlabToolCall): ValidatedAddSlab {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  const effectiveSlabLevel = resolveEffectiveLevelId(call.levelId)
+
   const polygon = call.polygon as [number, number][]
 
   if (!polygon || polygon.length < 3) {
@@ -141,6 +144,7 @@ export function validateAddSlab(call: AddSlabToolCall): ValidatedAddSlab {
     polygon,
     elevation: call.elevation ?? 0.05,
     holes: (call.holes ?? []) as [number, number][][],
+    levelId: effectiveSlabLevel ?? undefined,
   }
 }
 
@@ -169,12 +173,15 @@ export function validateUpdateSlab(call: UpdateSlabToolCall): ValidatedUpdateSla
 }
 
 export function validateAddCeiling(call: AddCeilingToolCall, _wallCache?: Map<string, import('@aedifex/core').WallNode[]>): ValidatedAddCeiling {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  const effectiveCeilLevel = resolveEffectiveLevelId(call.levelId)
+
   let polygon = call.polygon as [number, number][]
   let polygonAutoDetected = false
 
   // Fallback: auto-detect polygon from the largest zone when polygon is missing or invalid
   if (!polygon || polygon.length < 3) {
-    const levelId = useViewer.getState().selection.levelId
+    const levelId = effectiveCeilLevel
     if (!levelId) {
       return {
         type: 'add_ceiling',
@@ -227,7 +234,7 @@ export function validateAddCeiling(call: AddCeilingToolCall, _wallCache?: Map<st
   }
 
   // R3: Ceiling height must match wall height
-  const ceilLevelId = useViewer.getState().selection.levelId
+  const ceilLevelId = effectiveCeilLevel
   let ceilingHeight = call.height ?? 2.5
   let ceilAdjustReason: string | undefined
 
@@ -263,6 +270,7 @@ export function validateAddCeiling(call: AddCeilingToolCall, _wallCache?: Map<st
     polygon,
     height: ceilingHeight,
     material: call.material,
+    levelId: effectiveCeilLevel ?? undefined,
     adjustmentReason: combinedAdjustReason,
   }
 }
@@ -308,6 +316,9 @@ export function validateUpdateCeiling(call: UpdateCeilingToolCall, _wallCache?: 
 const VALID_ROOF_TYPES = new Set(['hip', 'gable', 'shed', 'gambrel', 'dutch', 'mansard', 'flat'])
 
 export function validateAddRoof(call: AddRoofToolCall): ValidatedAddRoof {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  const effectiveRoofLevel = resolveEffectiveLevelId(call.levelId)
+
   if (!call.width || call.width <= 0) {
     return {
       type: 'add_roof',
@@ -363,6 +374,7 @@ export function validateAddRoof(call: AddRoofToolCall): ValidatedAddRoof {
     roofHeight: call.roofHeight ?? 2.5,
     wallHeight: call.wallHeight ?? 0.5,
     overhang: call.overhang ?? 0.3,
+    levelId: effectiveRoofLevel ?? undefined,
   }
 }
 
@@ -394,6 +406,9 @@ export function validateUpdateRoof(call: UpdateRoofToolCall): ValidatedUpdateRoo
 }
 
 export function validateAddStair(call: AddStairToolCall): ValidatedAddStair {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  const effectiveStairLevel = resolveEffectiveLevelId(call.levelId)
+
   const width = call.width ?? 1.0
   const length = call.length ?? 3.0
   const height = call.height ?? 2.5
@@ -455,6 +470,7 @@ export function validateAddStair(call: AddStairToolCall): ValidatedAddStair {
     length,
     height,
     stepCount,
+    levelId: effectiveStairLevel ?? undefined,
   }
 }
 
@@ -513,6 +529,9 @@ export function validateUpdateStair(call: UpdateStairToolCall): ValidatedUpdateS
 }
 
 export function validateAddZone(call: AddZoneToolCall): ValidatedAddZone {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  const effectiveZoneLevel = resolveEffectiveLevelId(call.levelId)
+
   const polygon = call.polygon as [number, number][]
 
   if (!polygon || polygon.length < 3) {
@@ -529,6 +548,7 @@ export function validateAddZone(call: AddZoneToolCall): ValidatedAddZone {
     status: 'valid',
     polygon,
     name: call.name,
+    levelId: effectiveZoneLevel ?? undefined,
   }
 }
 

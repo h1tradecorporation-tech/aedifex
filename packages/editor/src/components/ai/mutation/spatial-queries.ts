@@ -6,10 +6,29 @@ import {
   pointInPolygon,
   useScene,
 } from '@aedifex/core'
+import { useViewer } from '@aedifex/viewer'
 
 // ============================================================================
 // Spatial Query Utilities
 // ============================================================================
+
+/**
+ * Resolve the effective level ID for an operation.
+ * If an explicit levelId is provided (from the LLM tool call), validates that
+ * the node exists and is a level node. Falls back to the viewer's selected level.
+ * Returns null if no valid level can be resolved.
+ */
+export function resolveEffectiveLevelId(explicitLevelId?: string): string | null {
+  if (explicitLevelId) {
+    const { nodes } = useScene.getState()
+    const node = nodes[explicitLevelId as AnyNodeId]
+    if (node && node.type === 'level') {
+      return explicitLevelId
+    }
+    // Invalid levelId from LLM — fall back to viewer selection
+  }
+  return useViewer.getState().selection.levelId
+}
 
 /**
  * Collect all WallNode instances belonging to a given level.

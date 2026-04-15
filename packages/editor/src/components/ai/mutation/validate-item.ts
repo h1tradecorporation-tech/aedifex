@@ -3,7 +3,6 @@ import {
   spatialGridManager,
   useScene,
 } from '@aedifex/core'
-import { useViewer } from '@aedifex/viewer'
 import { resolveCatalogSlug } from '../ai-catalog-resolver'
 import type {
   AddItemToolCall,
@@ -18,13 +17,17 @@ import type {
   ValidatedUpdateMaterial,
 } from '../types'
 import { checkWallCollision, checkZoneBoundary, getItemAABB } from './collision-detection'
-import { getCeilingAtPosition, getLevelHeightContext, getWallsForLevel } from './spatial-queries'
+import { getCeilingAtPosition, getLevelHeightContext, getWallsForLevel, resolveEffectiveLevelId } from './spatial-queries'
 
 // ============================================================================
 // Item Validators
 // ============================================================================
 
 export function validateAddItem(call: AddItemToolCall, _wallCache?: Map<string, import('@aedifex/core').WallNode[]>): ValidatedAddItem {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  // This enables multi-level batch operations where the AI specifies target levels.
+  const effectiveLevelId = resolveEffectiveLevelId(call.levelId)
+
   // Guard against undefined catalogSlug (can happen when batch_operations
   // guesses wrong tool type for an operation missing the 'type' field)
   if (!call.catalogSlug) {
@@ -66,7 +69,7 @@ export function validateAddItem(call: AddItemToolCall, _wallCache?: Map<string, 
 
   // Reject wall-dependent items (windows, doors) if no walls exist in the scene
   if (asset.attachTo === 'wall') {
-    const levelId = useViewer.getState().selection.levelId
+    const levelId = effectiveLevelId
     if (levelId) {
       const walls = getWallsForLevel(levelId)
       if (walls.length === 0) {
@@ -84,7 +87,7 @@ export function validateAddItem(call: AddItemToolCall, _wallCache?: Map<string, 
 
   // R1 + R2: Height constraints for ceiling items
   if (asset.attachTo === 'ceiling') {
-    const heightLevelId = useViewer.getState().selection.levelId
+    const heightLevelId = effectiveLevelId
     if (heightLevelId) {
       const heightCtx = getLevelHeightContext(heightLevelId)
       const ceilingHeight = getCeilingAtPosition(position[0], position[2], heightCtx.ceilings)
@@ -103,7 +106,7 @@ export function validateAddItem(call: AddItemToolCall, _wallCache?: Map<string, 
 
   // Skip collision detection for wall/ceiling items
   if (!asset.attachTo) {
-    const levelId = useViewer.getState().selection.levelId
+    const levelId = effectiveLevelId
     if (levelId) {
       // Check floor collision
       const canPlace = spatialGridManager.canPlaceOnFloor(
@@ -247,6 +250,7 @@ export function validateAddItem(call: AddItemToolCall, _wallCache?: Map<string, 
     asset,
     position,
     rotation,
+    levelId: effectiveLevelId ?? undefined,
     adjustmentReason,
   }
 }
@@ -281,6 +285,8 @@ export function validateRemoveItem(call: RemoveItemToolCall): ValidatedRemoveIte
 }
 
 export function validateMoveItem(call: MoveItemToolCall, _wallCache?: Map<string, import('@aedifex/core').WallNode[]>): ValidatedMoveItem {
+  // Resolve effective level ID: explicit from tool call (validated), fallback to viewer selection.
+  const effectiveMoveLevel = resolveEffectiveLevelId(call.levelId)
   const { nodes } = useScene.getState()
   const node = nodes[call.nodeId as AnyNodeId]
 
@@ -312,7 +318,7 @@ export function validateMoveItem(call: MoveItemToolCall, _wallCache?: Map<string
 
   // Floor collision check
   if (!node.asset.attachTo) {
-    const levelId = useViewer.getState().selection.levelId
+    const levelId = effectiveMoveLevel
     if (levelId) {
       const canPlace = spatialGridManager.canPlaceOnFloor(
         levelId,
@@ -416,6 +422,7 @@ export function validateMoveItem(call: MoveItemToolCall, _wallCache?: Map<string
     nodeId: call.nodeId as AnyNodeId,
     position,
     rotation,
+    levelId: effectiveMoveLevel ?? undefined,
     adjustmentReason,
   }
 }
