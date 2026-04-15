@@ -332,8 +332,8 @@ describe('streamChat — malformed JSON', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10))
 
-    // Tool call skipped, no crash, no error
-    expect(cbs.errors).toHaveLength(0)
+    expect(cbs.errors).toHaveLength(1)
+    expect(cbs.errors[0]).toContain('invalid arguments')
     expect(cbs.toolCalls).toHaveLength(0)
     controller.abort()
   })

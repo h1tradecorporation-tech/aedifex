@@ -14,6 +14,13 @@ const mockCreateNode = vi.fn((node: any, _parentId?: string) => {
   mockCreatedNodes.push(mockNodes[node.id])
 })
 
+const mockCreateNodes = vi.fn((entries: Array<{ node: any; parentId: string | null }>) => {
+  for (const entry of entries) {
+    mockNodes[entry.node.id] = { ...entry.node, parentId: entry.parentId ?? null }
+    mockCreatedNodes.push(mockNodes[entry.node.id])
+  }
+})
+
 const mockDeleteNode = vi.fn((id: string) => {
   delete mockNodes[id]
   mockDeletedNodeIds.push(id)
@@ -37,6 +44,7 @@ vi.mock('@aedifex/core', () => ({
     getState: () => ({
       nodes: mockNodes,
       createNode: mockCreateNode,
+      createNodes: mockCreateNodes,
       deleteNode: mockDeleteNode,
       updateNode: mockUpdateNode,
     }),
@@ -187,6 +195,7 @@ function resetMockState() {
   mockDeletedNodeIds.length = 0
   mockUpdatedNodes.length = 0
   mockCreateNode.mockClear()
+  mockCreateNodes.mockClear()
   mockDeleteNode.mockClear()
   mockUpdateNode.mockClear()
   mockPause.mockClear()
@@ -534,12 +543,10 @@ describe('confirmGhostPreview', () => {
     applyGhostPreview([makeAddItemOp()])
     confirmGhostPreview([makeAddItemOp()])
 
-    // The very last createNode call (after ghost deletion) should be final node
-    const finalCalls = mockCreateNode.mock.calls
-    const lastCallArg = finalCalls[finalCalls.length - 1]?.[0]
-    if (lastCallArg) {
-      // Final node should NOT have isGhostPreview
-      expect(lastCallArg.metadata?.isGhostPreview).toBeFalsy()
+    const finalBatch = mockCreateNodes.mock.calls.at(-1)?.[0]
+    const createdNode = finalBatch?.[0]?.node
+    if (createdNode) {
+      expect(createdNode.metadata?.isGhostPreview).toBeFalsy()
     }
   })
 
