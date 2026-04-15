@@ -321,10 +321,24 @@ export async function runAgentLoop({
         // Terminal check: only confirm_preview/reject_preview are truly terminal.
         // Pure bulk removes (≥2) also break to let the user review.
         const isTerminalTool = mutationCalls.every((tc) => DETERMINISTIC_TOOLS.has(tc.tool))
-        const isPureRemove = mutationCalls.every((tc) =>
-          tc.tool === 'remove_item' || tc.tool === 'remove_node',
-        )
-        const isBulkRemove = isPureRemove && mutationCalls.length >= 2
+        // Check if all mutations are remove operations — including batch_operations
+        // that contain only remove_node/remove_item internally.
+        const isPureRemove = mutationCalls.every((tc) => {
+          if (tc.tool === 'remove_item' || tc.tool === 'remove_node') return true
+          if (tc.tool === 'batch_operations' && 'operations' in tc) {
+            const ops = (tc as { operations: Record<string, unknown>[] }).operations
+            return ops.length > 0 && ops.every((op) => {
+              const opType = (op.type as string) ?? ''
+              return opType === 'remove_item' || opType === 'remove_node'
+            })
+          }
+          return false
+        })
+        // Count actual remove operations (batch_operations may contain many)
+        const totalRemoveOps = isPureRemove
+          ? validated.filter((op) => op.type === 'remove_item' || op.type === 'remove_node').length
+          : 0
+        const isBulkRemove = isPureRemove && totalRemoveOps >= 2
 
         if (isTerminalTool || (isBulkRemove && validOps.length > 0)) {
           // Terminal: auto-confirm non-remove ops, then exit loop

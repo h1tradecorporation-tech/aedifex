@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import { undoConfirmedOperation } from './ai-preview-manager'
 import { shouldAutoCompact } from './ai-token-estimator'
 import type {
@@ -109,7 +110,8 @@ export interface AIChatActions {
   getConversationHistory: () => { role: 'user' | 'assistant'; content: string }[]
 }
 
-export const useAIChat = create<AIChatState & AIChatActions>((set, get) => ({
+export const useAIChat = create<AIChatState & AIChatActions>()(
+  persist((set, get) => ({
   // State
   messages: [],
   isStreaming: false,
@@ -494,4 +496,45 @@ export const useAIChat = create<AIChatState & AIChatActions>((set, get) => ({
       content: m.content,
     }))
   },
-}))
+}),
+  {
+    name: 'ai-chat-session',
+    storage: createJSONStorage(() => sessionStorage),
+    partialize: (state) => ({
+      // Only persist serializable, meaningful state
+      messages: state.messages.map((m): ChatMessage => ({
+        ...m,
+        // Blob URLs are invalid after page refresh — strip them
+        screenshotBefore: undefined,
+        screenshotAfter: undefined,
+      })),
+      conversationSummary: state.conversationSummary,
+      operationLog: state.operationLog,
+    }) as unknown as AIChatState & AIChatActions,
+    onRehydrateStorage: () => {
+      return (state?: AIChatState & AIChatActions) => {
+        if (!state) return
+        // pendingQuestion contains a resolve function — cannot be persisted.
+        // If rehydrated with a stale pending state, reset it.
+        state.pendingQuestion = null
+        state.loopState = 'idle'
+        state.isAIProcessing = false
+        state.isStreaming = false
+        state.streamingContent = ''
+        state.recentErrors = new Map()
+        // Clean up any operationStatus stuck at 'pending' from interrupted loops
+        state.messages = state.messages.map((m: ChatMessage): ChatMessage => {
+          if (m.operationStatus === 'pending') {
+            // If it had operations, mark as rejected (loop was interrupted)
+            // If it was an ask_user message (no operations), clear the status
+            return {
+              ...m,
+              operationStatus: m.operations?.length ? 'rejected' as const : undefined,
+            }
+          }
+          return m
+        })
+      }
+    },
+  },
+))
