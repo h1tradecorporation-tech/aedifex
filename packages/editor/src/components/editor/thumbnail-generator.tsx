@@ -127,6 +127,14 @@ export const ThumbnailGenerator = ({ onThumbnailCapture }: ThumbnailGeneratorPro
 
       const restoreLevels = snapLevelsToTruePositions()
 
+      // Force opaque white background — see capture-screenshot.ts for rationale.
+      const prevBackground = scene.background
+      const prevClearAlpha = (gl as any).getClearAlpha?.() ?? 1
+      scene.background = new THREE.Color('#ffffff')
+      if ((gl as any).setClearAlpha) {
+        ;(gl as any).setClearAlpha(1)
+      }
+
       const visibilitySnapshot = new Map<string, boolean>()
       for (const type of ['scan', 'guide'] as const) {
         sceneRegistry.byType[type].forEach((id) => {
@@ -139,6 +147,12 @@ export const ThumbnailGenerator = ({ onThumbnailCapture }: ThumbnailGeneratorPro
       }
 
       gl.render(scene, thumbnailCamera)
+
+      // Restore original background and clear alpha
+      scene.background = prevBackground
+      if ((gl as any).setClearAlpha) {
+        ;(gl as any).setClearAlpha(prevClearAlpha)
+      }
 
       restoreLevels()
       visibilitySnapshot.forEach((wasVisible, id) => {

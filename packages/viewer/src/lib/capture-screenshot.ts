@@ -101,10 +101,16 @@ export function captureScreenshot(
 
       const restoreLevels = snapLevelsToTruePositions()
 
-      // Ensure scene has a background color for the screenshot.
+      // Force opaque white background for the screenshot.
+      // The post-processing pipeline sets setClearAlpha(0) so background pixels
+      // are transparent (used as geometry mask in the TSL pipeline). When we
+      // bypass the pipeline with gl.render(), transparent pixels become black
+      // on the 2D canvas. Fix: force clearAlpha=1 and a white background.
       const prevBackground = scene.background
-      if (!scene.background) {
-        scene.background = new THREE.Color('#ffffff')
+      const prevClearAlpha = (gl as any).getClearAlpha?.() ?? 1
+      scene.background = new THREE.Color('#ffffff')
+      if ((gl as any).setClearAlpha) {
+        ;(gl as any).setClearAlpha(1)
       }
 
       // Hide scan/guide nodes
@@ -121,8 +127,11 @@ export function captureScreenshot(
 
       gl.render(scene, camera)
 
-      // Restore original background
+      // Restore original background and clear alpha
       scene.background = prevBackground
+      if ((gl as any).setClearAlpha) {
+        ;(gl as any).setClearAlpha(prevClearAlpha)
+      }
 
       restoreLevels()
       visibilitySnapshot.forEach((wasVisible, id) => {
