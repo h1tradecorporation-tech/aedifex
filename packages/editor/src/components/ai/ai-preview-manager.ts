@@ -152,7 +152,9 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
       case 'add_guide':
       case 'add_building':
       case 'move_building':
-      case 'clone_level': {
+      case 'clone_level':
+      case 'add_fence':
+      case 'add_cut_out': {
         // Structure tools — no visual ghost preview needed
         break
       }
@@ -165,7 +167,8 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
       case 'update_roof':
       case 'update_zone':
       case 'update_site':
-      case 'update_item': {
+      case 'update_item':
+      case 'update_fence': {
         // Update operations — handled at confirm time
         break
       }

@@ -5,6 +5,7 @@ import {
   CeilingNode,
   cloneLevelSubtree,
   DoorNode,
+  FenceNode,
   GuideNode,
   ItemNode,
   LevelNode,
@@ -25,6 +26,8 @@ import type {
   AIOperationLog,
   ValidatedAddBuilding,
   ValidatedAddCeiling,
+  ValidatedAddCutOut,
+  ValidatedAddFence,
   ValidatedAddGuide,
   ValidatedAddLevel,
   ValidatedAddRoof,
@@ -36,6 +39,7 @@ import type {
   ValidatedUpdateCeiling,
   ValidatedCloneLevel,
   ValidatedMoveBuilding,
+  ValidatedUpdateFence,
   ValidatedUpdateItem,
   ValidatedUpdateRoof,
   ValidatedUpdateSite,
@@ -548,6 +552,52 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           createdNodeIds.push(...clonedNodes.map(n => n.id as AnyNodeId))
           // Switch to the new level
           useViewer.getState().setSelection({ levelId: newLevelId as `level_${string}` })
+        }
+        break
+      }
+      case 'add_fence': {
+        const fenceOp = op as ValidatedAddFence
+        const fenceCount = getCachedTypeCount('fence')
+        const fenceNode = FenceNode.parse({
+          name: `Fence ${fenceCount + 1}`,
+          start: fenceOp.start,
+          end: fenceOp.end,
+          height: fenceOp.height,
+          thickness: fenceOp.thickness,
+          style: fenceOp.style,
+          baseStyle: fenceOp.baseStyle,
+          color: fenceOp.color,
+          postSpacing: fenceOp.postSpacing,
+        })
+        batchCreates.push({ node: fenceNode, parentId: (fenceOp.levelId ?? levelId) as AnyNodeId })
+        affectedNodeIds.push(fenceNode.id as AnyNodeId)
+        createdNodeIds.push(fenceNode.id as AnyNodeId)
+        break
+      }
+      case 'update_fence': {
+        const uFenceOp = op as ValidatedUpdateFence
+        const updates: Record<string, unknown> = {}
+        if (uFenceOp.start) updates.start = uFenceOp.start
+        if (uFenceOp.end) updates.end = uFenceOp.end
+        if (uFenceOp.height !== undefined) updates.height = uFenceOp.height
+        if (uFenceOp.thickness !== undefined) updates.thickness = uFenceOp.thickness
+        if (uFenceOp.style) updates.style = uFenceOp.style
+        if (uFenceOp.baseStyle) updates.baseStyle = uFenceOp.baseStyle
+        if (uFenceOp.color) updates.color = uFenceOp.color
+        if (uFenceOp.postSpacing !== undefined) updates.postSpacing = uFenceOp.postSpacing
+        useScene.getState().updateNode(uFenceOp.nodeId, updates)
+        affectedNodeIds.push(uFenceOp.nodeId)
+        break
+      }
+      case 'add_cut_out': {
+        const cutOp = op as ValidatedAddCutOut
+        const targetNode = nodes[cutOp.nodeId]
+        if (targetNode && (targetNode.type === 'slab' || targetNode.type === 'ceiling')) {
+          const currentHoles = (targetNode as { holes?: [number, number][][] }).holes ?? []
+          useScene.getState().updateNode(cutOp.nodeId, {
+            holes: [...currentHoles, cutOp.hole],
+          })
+          affectedNodeIds.push(cutOp.nodeId)
         }
         break
       }

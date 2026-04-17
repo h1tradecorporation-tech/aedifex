@@ -340,6 +340,47 @@ export interface ValidatedEnterWalkthrough {
   errorReason?: string
 }
 
+export interface ValidatedAddFence {
+  type: 'add_fence'
+  status: ValidatedOperationStatus
+  start: [number, number]
+  end: [number, number]
+  height: number
+  thickness: number
+  style: 'slat' | 'rail' | 'privacy'
+  baseStyle: 'floating' | 'grounded'
+  color: string
+  postSpacing: number
+  /** Resolved target level ID (from tool call or viewer selection at validation time). */
+  levelId?: string
+  adjustmentReason?: string
+  errorReason?: string
+}
+
+export interface ValidatedUpdateFence {
+  type: 'update_fence'
+  status: ValidatedOperationStatus
+  nodeId: AnyNodeId
+  start?: [number, number]
+  end?: [number, number]
+  height?: number
+  thickness?: number
+  style?: 'slat' | 'rail' | 'privacy'
+  baseStyle?: 'floating' | 'grounded'
+  color?: string
+  postSpacing?: number
+  errorReason?: string
+}
+
+export interface ValidatedAddCutOut {
+  type: 'add_cut_out'
+  status: ValidatedOperationStatus
+  nodeId: AnyNodeId
+  hole: [number, number][]
+  adjustmentReason?: string
+  errorReason?: string
+}
+
 export type ValidatedOperation =
   | ValidatedAddItem
   | ValidatedRemoveItem
@@ -371,3 +412,6 @@ export type ValidatedOperation =
   | ValidatedMoveBuilding
   | ValidatedCloneLevel
   | ValidatedEnterWalkthrough
+  | ValidatedAddFence
+  | ValidatedUpdateFence
+  | ValidatedAddCutOut

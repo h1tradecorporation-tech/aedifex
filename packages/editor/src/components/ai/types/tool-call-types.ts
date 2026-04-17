@@ -302,6 +302,47 @@ export interface CloneLevelToolCall {
   description?: string
 }
 
+/** Add a fence segment to the scene */
+export interface AddFenceToolCall {
+  tool: 'add_fence'
+  start: [number, number]
+  end: [number, number]
+  height?: number
+  thickness?: number
+  style?: 'slat' | 'rail' | 'privacy'
+  baseStyle?: 'floating' | 'grounded'
+  color?: string
+  postSpacing?: number
+  /** Target level ID. When omitted, uses the currently selected level in the viewer. */
+  levelId?: string
+  description?: string
+}
+
+/** Update properties of an existing fence */
+export interface UpdateFenceToolCall {
+  tool: 'update_fence'
+  nodeId: string
+  start?: [number, number]
+  end?: [number, number]
+  height?: number
+  thickness?: number
+  style?: 'slat' | 'rail' | 'privacy'
+  baseStyle?: 'floating' | 'grounded'
+  color?: string
+  postSpacing?: number
+  reason?: string
+}
+
+/** Add a cut-out (hole) to an existing slab or ceiling */
+export interface AddCutOutToolCall {
+  tool: 'add_cut_out'
+  /** The node ID of the target slab or ceiling */
+  nodeId: string
+  /** The hole polygon as array of [x, z] points */
+  hole: [number, number][]
+  description?: string
+}
+
 /** Enter first-person walkthrough mode */
 export interface EnterWalkthroughToolCall {
   tool: 'enter_walkthrough'
@@ -364,3 +405,6 @@ export type AIToolCall =
   | AskUserToolCall
   | ConfirmPreviewToolCall
   | RejectPreviewToolCall
+  | AddFenceToolCall
+  | UpdateFenceToolCall
+  | AddCutOutToolCall

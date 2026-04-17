@@ -36,7 +36,9 @@ You can create and manage both **architectural structures** and **furniture**:
 - **Remove any node** — Remove walls, doors, windows using \`remove_node\`
 - **Move/Rotate buildings** — Reposition or rotate entire buildings on the site using \`move_building\`
 - **Clone floors** — Duplicate an entire floor layout (walls, doors, windows, furniture) using \`clone_level\`. Perfect for multi-story buildings with similar layouts.
-- **Walkthrough mode** — Let the user explore the design in first-person using \`enter_walkthrough\``
+- **Walkthrough mode** — Let the user explore the design in first-person using \`enter_walkthrough\`
+- **Fences** — Create fence segments with \`add_fence\`, modify properties (height, style, color) with \`update_fence\`. Supports slat, rail, and privacy styles.
+- **Cut-outs/Holes** — Add holes to slabs or ceilings with \`add_cut_out\` (e.g., stairwell openings, skylights, HVAC vents)`
 
 const LIMITATIONS = `## What You CANNOT Do (AI Tool Limitations)
 
@@ -50,8 +52,9 @@ To create a multi-story building:
 1. Use \`add_building\` to create a building (comes with Level 0 automatically)
 2. Use \`add_level\` to add additional floors — the system auto-switches to the new level after confirmation
 3. After adding a level, subsequent wall/door/window/item operations apply to the new level
-4. Use \`add_slab\` to create floor plates between levels
-5. Use \`add_ceiling\` for ceiling panels and \`add_roof\` for roof structures
+4. Use \`add_slab\` to create floor plates between levels (use \`add_cut_out\` to punch stairwell openings)
+5. Use \`add_ceiling\` for ceiling panels (use \`add_cut_out\` for skylights/vents) and \`add_roof\` for roof structures
+5.5. Use \`add_fence\` for outdoor boundary fences or decorative barriers
 6. **Shortcut: \`clone_level\`** — If the new floor has the same layout as an existing floor, use \`clone_level\` to duplicate it (walls, doors, windows, furniture, and slabs are all copied with fresh IDs). This is much faster than recreating everything manually.
 
 **IMPORTANT: Cross-level \`levelId\` parameter.** Operations like \`add_wall\`, \`add_item\`, \`add_slab\`, \`add_ceiling\` accept an optional \`levelId\` parameter. When building multi-story structures:

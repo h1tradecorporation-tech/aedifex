@@ -543,6 +543,68 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'add_fence',
+      description: 'Create a fence segment between two points. Fences are decorative/boundary elements with configurable style (slat, rail, privacy).',
+      parameters: {
+        type: 'object',
+        properties: {
+          start: { type: 'array', items: { type: 'number' }, description: 'Start point [x, z] in meters.' },
+          end: { type: 'array', items: { type: 'number' }, description: 'End point [x, z] in meters.' },
+          height: { type: 'number', description: 'Fence height in meters (default: 1.8).' },
+          thickness: { type: 'number', description: 'Fence panel thickness in meters (default: 0.08).' },
+          style: { type: 'string', enum: ['slat', 'rail', 'privacy'], description: 'Fence style (default: slat). slat = spaced vertical boards, rail = horizontal rails, privacy = solid panels.' },
+          baseStyle: { type: 'string', enum: ['floating', 'grounded'], description: 'Base style (default: grounded). grounded = sits on ground, floating = raised above ground.' },
+          color: { type: 'string', description: 'Fence color as hex string (default: #ffffff).' },
+          postSpacing: { type: 'number', description: 'Distance between fence posts in meters (default: 2).' },
+          levelId: { type: 'string', description: 'Target level ID (from scene context). Required for multi-level buildings when targeting a level other than the currently selected one.' },
+          description: { type: 'string', description: 'Brief description.' },
+        },
+        required: ['start', 'end'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_fence',
+      description: 'Update properties of an existing fence (position, height, style, color, etc.).',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'The node ID of the fence to update.' },
+          start: { type: 'array', items: { type: 'number' }, description: 'New start point [x, z] in meters.' },
+          end: { type: 'array', items: { type: 'number' }, description: 'New end point [x, z] in meters.' },
+          height: { type: 'number', description: 'New fence height in meters.' },
+          thickness: { type: 'number', description: 'New fence panel thickness in meters.' },
+          style: { type: 'string', enum: ['slat', 'rail', 'privacy'], description: 'New fence style.' },
+          baseStyle: { type: 'string', enum: ['floating', 'grounded'], description: 'New base style.' },
+          color: { type: 'string', description: 'New fence color as hex string.' },
+          postSpacing: { type: 'number', description: 'New post spacing in meters.' },
+          reason: { type: 'string', description: 'Brief reason for the change.' },
+        },
+        required: ['nodeId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_cut_out',
+      description: 'Add a hole (cut-out) to an existing slab or ceiling. The hole is defined as a polygon within the slab/ceiling boundary. Useful for stairwell openings, skylights, or HVAC vents.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'The node ID of the target slab or ceiling.' },
+          hole: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Hole polygon as array of [x, z] points in meters. Must be within the slab/ceiling boundary.' },
+          description: { type: 'string', description: 'Brief description (e.g., "stairwell opening", "skylight").' },
+        },
+        required: ['nodeId', 'hole'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'batch_operations',
       description: 'Execute multiple operations at once. Use for room creation, room setups, or any multi-step operation.',
       parameters: {
@@ -553,7 +615,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
             items: {
               type: 'object',
               properties: {
-                type: { type: 'string', enum: ['add_item', 'remove_item', 'move_item', 'update_material', 'update_item', 'add_wall', 'update_wall', 'add_door', 'update_door', 'add_window', 'update_window', 'remove_node', 'add_level', 'add_slab', 'update_slab', 'add_ceiling', 'update_ceiling', 'add_roof', 'update_roof', 'add_zone', 'update_zone', 'add_building', 'update_site', 'add_scan', 'add_guide', 'move_building', 'clone_level'] },
+                type: { type: 'string', enum: ['add_item', 'remove_item', 'move_item', 'update_material', 'update_item', 'add_wall', 'update_wall', 'add_door', 'update_door', 'add_window', 'update_window', 'remove_node', 'add_level', 'add_slab', 'update_slab', 'add_ceiling', 'update_ceiling', 'add_roof', 'update_roof', 'add_zone', 'update_zone', 'add_building', 'update_site', 'add_scan', 'add_guide', 'move_building', 'clone_level', 'add_fence', 'update_fence', 'add_cut_out'] },
                 catalogSlug: { type: 'string' }, nodeId: { type: 'string' },
                 position: { type: 'array', items: { type: 'number' } }, rotationY: { type: 'number' },
                 material: { type: 'string' },
@@ -562,6 +624,8 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
                 wallId: { type: 'string' }, levelId: { type: 'string' }, positionAlongWall: { type: 'number' }, heightFromFloor: { type: 'number' },
                 width: { type: 'number' }, side: { type: 'string' }, hingesSide: { type: 'string' }, swingDirection: { type: 'string' },
                 description: { type: 'string' }, reason: { type: 'string' },
+                style: { type: 'string' }, baseStyle: { type: 'string' }, color: { type: 'string' }, postSpacing: { type: 'number' },
+                hole: { type: 'array', items: { type: 'array', items: { type: 'number' } } },
               },
             },
           },
