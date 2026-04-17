@@ -17,6 +17,7 @@ export interface StreamCallbacks {
   onToolCall: (toolCall: AIToolCall) => void
   onComplete: (fullText: string, toolCalls: AIToolCall[], toolCallIds: string[], usage?: StreamUsage) => void
   onError: (error: string) => void
+  onRetry?: () => void
 }
 
 /**
@@ -71,6 +72,8 @@ async function processStreamWithRetry(
 
       const isLastAttempt = attempt >= MAX_STREAM_RETRIES
       if (isLastAttempt) throw err
+
+      callbacks.onRetry?.()
 
       // Retry after delay
       console.warn(`[AI Stream] Attempt ${attempt + 1} failed, retrying in ${STREAM_RETRY_DELAY_MS}ms`)

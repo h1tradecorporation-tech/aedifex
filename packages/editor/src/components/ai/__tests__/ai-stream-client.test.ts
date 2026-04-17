@@ -394,6 +394,44 @@ describe('streamChat — network errors', () => {
     controller.abort()
     vi.useRealTimers()
   })
+
+  it('calls onRetry before retrying after a mid-stream failure', async () => {
+    vi.useFakeTimers()
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(encodeSSELines([makeTextChunk('partial')]))
+            controller.error(new Error('Stream interrupted'))
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: makeStream([
+          makeTextChunk('final'),
+          makeFinishChunk(),
+        ]),
+      })
+
+    const onRetry = vi.fn()
+    const cbs = makeCallbacks({ onRetry })
+    const controller = streamChat(baseRequest, cbs)
+
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1100)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(onRetry).toHaveBeenCalledOnce()
+    expect(cbs.completes).toHaveLength(1)
+    expect(cbs.completes[0]?.[0]).toBe('final')
+    controller.abort()
+    vi.useRealTimers()
+  })
 })
 
 // ============================================================================

@@ -461,6 +461,9 @@ function streamLLMResponse(
         onError: (err) => {
           reject(new Error(err))
         },
+        onRetry: () => {
+          useAIChat.getState().startStreaming()
+        },
       },
     )
   })
