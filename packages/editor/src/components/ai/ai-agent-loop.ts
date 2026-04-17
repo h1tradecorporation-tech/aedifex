@@ -37,6 +37,29 @@ import type {
 // Track pending screenshot timers so they can be cancelled on cleanup
 const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
 
+/**
+ * Global AbortController for the current agent loop.
+ * Starting a new loop or calling clearChat aborts the previous one,
+ * preventing stale callbacks from corrupting the new conversation state.
+ */
+let activeLoopController: AbortController | null = null
+
+/**
+ * Abort any in-flight agent loop. Called by clearChat and at the start
+ * of each new runAgentLoop invocation.
+ */
+export function abortActiveLoop(): void {
+  if (activeLoopController) {
+    activeLoopController.abort()
+    activeLoopController = null
+  }
+  // Cancel any pending screenshot timers
+  for (const timer of pendingTimers) {
+    clearTimeout(timer)
+  }
+  pendingTimers.clear()
+}
+
 /** Total token budget per agent loop run (prompt + completion summed) */
 const TOKEN_BUDGET = 10_000_000
 
@@ -81,6 +104,12 @@ export async function runAgentLoop({
   onIterationStart?: (iteration: number) => void
   onIterationEnd?: (iteration: number, result: ToolResult | null) => void
 }): Promise<void> {
+  // Abort any previous in-flight loop to prevent stale callbacks
+  abortActiveLoop()
+  const loopController = new AbortController()
+  activeLoopController = loopController
+  const signal = loopController.signal
+
   const store = useAIChat.getState()
 
   // If there are lingering ghost preview nodes from a previous loop,
@@ -92,11 +121,17 @@ export async function runAgentLoop({
 
     store.setAIProcessing(false)
 
-    const answer = await new Promise<string>((resolve) => {
+    const answer = await new Promise<string>((resolve, reject) => {
+      // If loop is aborted while waiting for user answer, reject to unblock
+      const onAbort = () => reject(new DOMException('Agent loop aborted', 'AbortError'))
+      signal.addEventListener('abort', onAbort, { once: true })
       store.setPendingQuestion({
         question: 'There are unconfirmed changes from the previous operation. Would you like to keep or discard them before continuing?',
         suggestions: ['Keep changes', 'Discard changes'],
-        resolve,
+        resolve: (value: string) => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(value)
+        },
       })
     })
 
@@ -151,6 +186,9 @@ export async function runAgentLoop({
 
   try {
     while (iteration < MAX_ITERATIONS && totalTokensUsed < TOKEN_BUDGET) {
+      // Check if this loop has been superseded by a new one (clearChat or new message)
+      if (signal.aborted) break
+
       iteration++
       onIterationStart?.(iteration)
       useAIChat.getState().setIterationCount(iteration)
@@ -175,11 +213,12 @@ export async function runAgentLoop({
         scenePrompt = 'Current scene (level: unknown):\n- Scene data unavailable due to serialization error. Ask user to describe the current scene.'
       }
 
-      // Stream LLM response
+      // Stream LLM response (pass signal so fetch can be aborted)
       const { text, toolCalls, toolCallIds, usage } = await streamLLMResponse(
         conversationMessages,
         catalogSummary,
         scenePrompt,
+        signal,
       )
 
       // Track token usage (use API-reported values, fallback to estimate)
@@ -412,12 +451,19 @@ export async function runAgentLoop({
       }
     }
   } catch (err) {
+    // AbortError means this loop was superseded — don't show error to user
+    if (err instanceof DOMException && err.name === 'AbortError') return
+    if (signal.aborted) return
     const errorMessage = err instanceof Error ? err.message : 'Agent loop error'
     useAIChat.getState().setStreamError(errorMessage)
   } finally {
-    useAIChat.getState().setAIProcessing(false)
-    useAIChat.getState().setLoopState('complete')
-    useAIChat.getState().summarizeIfNeeded()
+    // Only clean up state if THIS loop is still the active one.
+    // If a new loop superseded us, it owns the state now.
+    if (!signal.aborted) {
+      useAIChat.getState().setAIProcessing(false)
+      useAIChat.getState().setLoopState('complete')
+      useAIChat.getState().summarizeIfNeeded()
+    }
   }
 }
 
@@ -433,12 +479,19 @@ function streamLLMResponse(
   messages: AgentMessage[],
   catalogSummary: string,
   sceneContext: string,
+  abortSignal?: AbortSignal,
 ): Promise<{ text: string; toolCalls: AIToolCall[]; toolCallIds: string[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
   return new Promise((resolve, reject) => {
+    // If already aborted (e.g. clearChat called before stream started), reject immediately
+    if (abortSignal?.aborted) {
+      reject(new DOMException('Agent loop aborted', 'AbortError'))
+      return
+    }
+
     const store = useAIChat.getState()
     store.startStreaming()
 
-    streamChat(
+    const streamController = streamChat(
       {
         messages: messages.map((m) => ({
           role: m.role,
@@ -466,6 +519,11 @@ function streamLLMResponse(
         },
       },
     )
+
+    // If the parent loop is aborted, also abort the HTTP stream
+    abortSignal?.addEventListener('abort', () => {
+      streamController.abort()
+    }, { once: true })
   })
 }
 
