@@ -3,16 +3,19 @@
 import type { AssetInput } from '@aedifex/core'
 import {
   type BuildingNode,
+  type CeilingNode,
   type DoorNode,
   type FenceNode,
   type ItemNode,
   type LevelNode,
   type RoofNode,
   type RoofSegmentNode,
+  type SlabNode,
   type Space,
   type StairNode,
   type StairSegmentNode,
   useScene,
+  type WallNode,
   type WindowNode,
 } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
@@ -91,6 +94,9 @@ type EditorState = {
     | WindowNode
     | DoorNode
     | FenceNode
+    | CeilingNode
+    | SlabNode
+    | WallNode
     | RoofNode
     | RoofSegmentNode
     | StairNode
@@ -103,6 +109,9 @@ type EditorState = {
       | WindowNode
       | DoorNode
       | FenceNode
+      | CeilingNode
+      | SlabNode
+      | WallNode
       | RoofNode
       | RoofSegmentNode
       | StairNode
@@ -110,6 +119,8 @@ type EditorState = {
       | BuildingNode
       | null,
   ) => void
+  curvingWall: WallNode | null
+  setCurvingWall: (wall: WallNode | null) => void
   selectedReferenceId: string | null
   setSelectedReferenceId: (id: string | null) => void
   // Space detection for cutaway mode
@@ -468,6 +479,8 @@ const useEditor = create<EditorState>()(
         | BuildingNode
         | null,
       setMovingNode: (node) => set({ movingNode: node }),
+      curvingWall: null,
+      setCurvingWall: (wall) => set({ curvingWall: wall }),
       selectedReferenceId: null,
       setSelectedReferenceId: (id) => set({ selectedReferenceId: id }),
       spaces: {},

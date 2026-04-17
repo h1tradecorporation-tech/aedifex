@@ -21,9 +21,9 @@ import useEditor from '../../../store/use-editor'
 import { DEFAULT_SPIRAL_STAIR_SWEEP_ANGLE } from '../../tools/stair/stair-defaults'
 import { ActionButton, ActionGroup } from '../controls/action-button'
 import { MaterialPicker } from '../controls/material-picker'
-import { MetricControl } from '../controls/metric-control'
 import { PanelSection } from '../controls/panel-section'
 import { SegmentedControl } from '../controls/segmented-control'
+import { MetricControl } from '../controls/metric-control'
 import { SliderControl } from '../controls/slider-control'
 import { ToggleControl } from '../controls/toggle-control'
 import { PanelWrapper } from './panel-wrapper'
@@ -368,7 +368,7 @@ export function StairPanel() {
       )}
 
       <PanelSection title="Position">
-        <MetricControl
+        <SliderControl
           label="X"
           max={50}
           min={-50}
@@ -382,7 +382,7 @@ export function StairPanel() {
           unit="m"
           value={Math.round(node.position[0] * 100) / 100}
         />
-        <MetricControl
+        <SliderControl
           label="Y"
           max={50}
           min={-50}
@@ -396,7 +396,7 @@ export function StairPanel() {
           unit="m"
           value={Math.round(node.position[1] * 100) / 100}
         />
-        <MetricControl
+        <SliderControl
           label="Z"
           max={50}
           min={-50}

@@ -347,10 +347,6 @@ const PostProcessingPasses = () => {
     bgCurrent.current.lerp(bgTarget.current, Math.min(delta, 0.1) * 4)
     bgUniform.current.value.copy(bgCurrent.current)
 
-    if (!isInitialized) {
-      return
-    }
-
     if (hasPipelineErrorRef.current || !renderPipelineRef.current) {
       try {
         if ((renderer as any).setClearAlpha) {
