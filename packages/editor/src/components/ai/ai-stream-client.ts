@@ -403,6 +403,202 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         })),
       }
 
+    case 'add_level':
+      return {
+        tool: 'add_level',
+        name: input.name as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'add_slab':
+      return {
+        tool: 'add_slab',
+        polygon: input.polygon as [number, number][],
+        elevation: input.elevation as number | undefined,
+        holes: input.holes as [number, number][][] | undefined,
+        levelId: input.levelId as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_slab':
+      return {
+        tool: 'update_slab',
+        nodeId: input.nodeId as string,
+        elevation: input.elevation as number | undefined,
+        polygon: input.polygon as [number, number][] | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_ceiling':
+      return {
+        tool: 'add_ceiling',
+        polygon: input.polygon as [number, number][],
+        height: input.height as number | undefined,
+        material: input.material as string | undefined,
+        levelId: input.levelId as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_ceiling':
+      return {
+        tool: 'update_ceiling',
+        nodeId: input.nodeId as string,
+        height: input.height as number | undefined,
+        material: input.material as string | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_roof':
+      return {
+        tool: 'add_roof',
+        position: input.position as [number, number, number],
+        width: input.width as number,
+        depth: input.depth as number,
+        roofType: input.roofType as 'hip' | 'gable' | 'shed' | 'gambrel' | 'dutch' | 'mansard' | 'flat',
+        roofHeight: input.roofHeight as number | undefined,
+        wallHeight: input.wallHeight as number | undefined,
+        overhang: input.overhang as number | undefined,
+        levelId: input.levelId as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_roof':
+      return {
+        tool: 'update_roof',
+        nodeId: input.nodeId as string,
+        roofType: input.roofType as 'hip' | 'gable' | 'shed' | 'gambrel' | 'dutch' | 'mansard' | 'flat' | undefined,
+        roofHeight: input.roofHeight as number | undefined,
+        wallHeight: input.wallHeight as number | undefined,
+        width: input.width as number | undefined,
+        depth: input.depth as number | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_stair':
+      return {
+        tool: 'add_stair',
+        position: input.position as [number, number, number],
+        rotationY: input.rotationY as number | undefined,
+        width: input.width as number | undefined,
+        length: input.length as number | undefined,
+        height: input.height as number | undefined,
+        stepCount: input.stepCount as number | undefined,
+        levelId: input.levelId as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_stair':
+      return {
+        tool: 'update_stair',
+        nodeId: input.nodeId as string,
+        position: input.position as [number, number, number] | undefined,
+        rotationY: input.rotationY as number | undefined,
+        width: input.width as number | undefined,
+        length: input.length as number | undefined,
+        height: input.height as number | undefined,
+        stepCount: input.stepCount as number | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_zone':
+      return {
+        tool: 'add_zone',
+        polygon: input.polygon as [number, number][],
+        name: input.name as string | undefined,
+        levelId: input.levelId as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_zone':
+      return {
+        tool: 'update_zone',
+        nodeId: input.nodeId as string,
+        polygon: input.polygon as [number, number][] | undefined,
+        name: input.name as string | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_building':
+      return {
+        tool: 'add_building',
+        position: input.position as [number, number, number] | undefined,
+        name: input.name as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_site':
+      return {
+        tool: 'update_site',
+        polygon: input.polygon as [number, number][] | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_scan':
+      return {
+        tool: 'add_scan',
+        url: input.url as string,
+        position: input.position as [number, number, number] | undefined,
+        scale: input.scale as number | undefined,
+        opacity: input.opacity as number | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'add_guide':
+      return {
+        tool: 'add_guide',
+        url: input.url as string,
+        position: input.position as [number, number, number] | undefined,
+        scale: input.scale as number | undefined,
+        opacity: input.opacity as number | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_item':
+      return {
+        tool: 'update_item',
+        nodeId: input.nodeId as string,
+        scale: input.scale as [number, number, number] | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_fence':
+      return {
+        tool: 'add_fence',
+        start: input.start as [number, number],
+        end: input.end as [number, number],
+        height: input.height as number | undefined,
+        thickness: input.thickness as number | undefined,
+        style: input.style as 'slat' | 'rail' | 'privacy' | undefined,
+        baseStyle: input.baseStyle as 'floating' | 'grounded' | undefined,
+        color: input.color as string | undefined,
+        postSpacing: input.postSpacing as number | undefined,
+        levelId: input.levelId as string | undefined,
+        description: input.description as string | undefined,
+      }
+
+    case 'update_fence':
+      return {
+        tool: 'update_fence',
+        nodeId: input.nodeId as string,
+        start: input.start as [number, number] | undefined,
+        end: input.end as [number, number] | undefined,
+        height: input.height as number | undefined,
+        thickness: input.thickness as number | undefined,
+        style: input.style as 'slat' | 'rail' | 'privacy' | undefined,
+        baseStyle: input.baseStyle as 'floating' | 'grounded' | undefined,
+        color: input.color as string | undefined,
+        postSpacing: input.postSpacing as number | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'add_cut_out':
+      return {
+        tool: 'add_cut_out',
+        nodeId: input.nodeId as string,
+        hole: input.hole as [number, number][],
+        description: input.description as string | undefined,
+      }
+
     case 'move_building':
       return {
         tool: 'move_building',
