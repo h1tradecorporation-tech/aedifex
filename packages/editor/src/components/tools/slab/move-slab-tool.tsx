@@ -1,7 +1,7 @@
 'use client'
 
-import { type AnyNodeId, emitter, type GridEvent, useScene, type SlabNode } from '@pascal-app/core'
-import { useViewer } from '@pascal-app/viewer'
+import { type AnyNodeId, emitter, type GridEvent, useScene, type SlabNode } from '@aedifex/core'
+import { useViewer } from '@aedifex/viewer'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { markToolCancelConsumed } from '../../../hooks/use-keyboard'
 import { sfxEmitter } from '../../../lib/sfx-bus'
