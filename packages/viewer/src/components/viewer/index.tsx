@@ -110,7 +110,13 @@ const Viewer: React.FC<ViewerProps> = ({
         const renderer = new THREE.WebGPURenderer(props as any)
         renderer.toneMapping = THREE.ACESFilmicToneMapping
         renderer.toneMappingExposure = 0.9
-        // renderer.init() // Only use when using <DebugRenderer />
+        // Awaiting init() is required when the browser falls back to the
+        // WebGL2 backend (Safari without the WebGPU flag, older Chrome on
+        // machines without a WebGPU device). In native WebGPU mode the
+        // init resolves almost instantly. Without this await, the first
+        // render throws "Renderer: .render() called before the backend is
+        // initialized" from the post-processing fallback path.
+        await renderer.init()
         return renderer
       }}
       performance={{ min: 0.5 }}
