@@ -14,6 +14,13 @@ export const DEFAULT_LEVEL_HEIGHT = 2.5
 const heightCache = new Map<string, number>()
 let lastNodesRef: object | null = null
 
+/**
+ * Compute the visual height of a level for stacking purposes.
+ *
+ * Uses schema data (wall.height, ceiling.height) directly instead of reading
+ * Three.js mesh positions, which can be stale during the first frames after
+ * a level is created or cause inflated values when walls sit on elevated slabs.
+ */
 export function getLevelHeight(
   levelId: string,
   nodes: ReturnType<typeof useScene.getState>['nodes'],
@@ -37,10 +44,12 @@ export function getLevelHeight(
       const ch = (child as CeilingNode).height ?? DEFAULT_LEVEL_HEIGHT
       if (ch > maxTop) maxTop = ch
     } else if (child.type === 'wall') {
-      let meshY = sceneRegistry.nodes.get(childId as any)?.position.y ?? 0
-      if (meshY < 0) meshY = 0
-      const top = meshY + ((child as WallNode).height ?? DEFAULT_LEVEL_HEIGHT)
-      if (top > maxTop) maxTop = top
+      // Use wall schema height directly. Previously this read the mesh's
+      // position.y from sceneRegistry which could include slab elevation
+      // offsets, leading to inflated level heights and visible gaps between
+      // stacked floors.
+      const wallHeight = (child as WallNode).height ?? DEFAULT_LEVEL_HEIGHT
+      if (wallHeight > maxTop) maxTop = wallHeight
     }
   }
 
