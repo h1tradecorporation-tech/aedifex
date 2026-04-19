@@ -4,7 +4,7 @@ import { DoubleSide, MeshStandardNodeMaterial } from 'three/webgpu'
  * Shared base material for structural elements: walls, frames, slabs, roof.
  */
 export const baseMaterial = new MeshStandardNodeMaterial({
-  color: '#f2f0ed',
+  color: '#c8c8c8',
   roughness: 0.5,
   metalness: 0,
 })
