@@ -282,7 +282,7 @@ export function createDefaultMaterial(
   })
 }
 
-export const DEFAULT_WALL_MATERIAL = createDefaultMaterial('#ffffff', 0.9)
+export const DEFAULT_WALL_MATERIAL = createDefaultMaterial('#e0e0e0', 0.9)
 export const DEFAULT_SLAB_MATERIAL = createDefaultMaterial('#e5e5e5', 0.8)
 export const DEFAULT_DOOR_MATERIAL = createDefaultMaterial('#8b4513', 0.7)
 export const DEFAULT_WINDOW_MATERIAL = new THREE.MeshStandardMaterial({
