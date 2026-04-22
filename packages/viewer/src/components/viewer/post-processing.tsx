@@ -1,6 +1,6 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Color, Layers, UnsignedByteType } from 'three'
+import { Color, Layers, type Object3D, UnsignedByteType } from 'three'
 import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
 import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 import {
@@ -47,14 +47,27 @@ const RETRY_DELAY_MS = 500
 const DARK_BG = '#1f2433'
 const LIGHT_BG = '#ffffff'
 
+function sanitizeOutlineObjects(objects: Object3D[]) {
+  let nextIndex = 0
+
+  for (const object of objects) {
+    if (!(object && typeof object.id === 'number' && object.parent)) {
+      continue
+    }
+
+    objects[nextIndex] = object
+    nextIndex++
+  }
+
+  objects.length = nextIndex
+}
+
 const PostProcessingPasses = () => {
   const { gl: renderer, scene, camera } = useThree()
   const renderPipelineRef = useRef<RenderPipeline | null>(null)
   const hasPipelineErrorRef = useRef(false)
   const retryCountRef = useRef(0)
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [isWebGPU, setIsWebGPU] = useState<boolean | null>(null)
 
   // Background color uniform — updated every frame via lerp, read by the TSL pipeline.
   // Initialised from the current theme so there's no flash on first render.
@@ -86,47 +99,6 @@ const PostProcessingPasses = () => {
     setPipelineVersion((v) => v + 1)
   }, [])
 
-  // Renderer initialization + WebGPU backend detection
-  useEffect(() => {
-    let mounted = true
-
-    const initRenderer = async () => {
-      try {
-        if (renderer && (renderer as any).init) {
-          await (renderer as any).init()
-        }
-
-        if (mounted) {
-          // Detect whether the WebGPU backend is active or we fell back to WebGL2.
-          // When WebGPU is unavailable, THREE.WebGPURenderer uses a WebGL2 backend
-          // that lacks GPUDevice — the TSL post-processing pipeline cannot run.
-          const hasWebGPU = !!(renderer as any).backend?.device
-          setIsWebGPU(hasWebGPU)
-          setIsInitialized(true)
-
-          if (!hasWebGPU) {
-            console.info(
-              '[viewer] WebGL2 backend detected — post-processing disabled for better performance. ' +
-                'Basic rendering continues via the standard pipeline.',
-            )
-          }
-        }
-      } catch (error) {
-        console.error('[viewer] Failed to initialize renderer for post-processing.', error)
-        if (mounted) {
-          setIsWebGPU(false)
-          setIsInitialized(false)
-        }
-      }
-    }
-
-    initRenderer()
-
-    return () => {
-      mounted = false
-    }
-  }, [renderer])
-
   // Reset retry state when project changes
   useEffect(() => {
     // Intentionally touch projectId so the effect reruns on project switches.
@@ -138,7 +110,6 @@ const PostProcessingPasses = () => {
     }
   }, [projectId])
 
-  // Clean up rebuild timeout on unmount
   useEffect(() => {
     return () => {
       if (rebuildTimeoutRef.current !== null) {
@@ -148,15 +119,14 @@ const PostProcessingPasses = () => {
     }
   }, [])
 
-  // Build / rebuild the post-processing pipeline — WebGPU only
+  // Build / rebuild the post-processing pipeline
   useEffect(() => {
     // Intentionally touch these so React/biome treat project switches and retry bumps
     // as explicit rebuild triggers instead of accidental extra dependencies.
     void projectId
     void pipelineVersion
 
-    // Skip pipeline entirely on WebGL2 — R3F's default render loop handles basic rendering
-    if (!(renderer && scene && camera && isInitialized && isWebGPU)) {
+    if (!(renderer && scene && camera)) {
       return
     }
 
@@ -170,7 +140,7 @@ const PostProcessingPasses = () => {
     // loop fights the direct-render fallback path. Short-circuit here so
     // `useFrame` uses the direct `renderer.render(scene, camera)` path
     // exclusively and never attempts the TSL pipeline.
-    const hasWebGPU = typeof navigator !== 'undefined' && typeof navigator.gpu !== 'undefined'
+    const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator
     if (!hasWebGPU) {
       console.warn(
         '[viewer] WebGPU unavailable — rendering without post-processing (SSGI, outlines, denoise).',
@@ -183,6 +153,8 @@ const PostProcessingPasses = () => {
     // Clear outliner arrays synchronously to prevent stale Object3D refs
     // from the previous project leaking into the new pipeline's outline passes.
     const outliner = useViewer.getState().outliner
+    sanitizeOutlineObjects(outliner.selectedObjects)
+    sanitizeOutlineObjects(outliner.hoveredObjects)
     outliner.selectedObjects.length = 0
     outliner.hoveredObjects.length = 0
 
@@ -326,26 +298,17 @@ const PostProcessingPasses = () => {
       }
       renderPipelineRef.current = null
     }
-  }, [
-    renderer,
-    scene,
-    camera,
-    hoverHighlightMode,
-    isInitialized,
-    isWebGPU,
-    zoneLayers,
-    projectId,
-    pipelineVersion,
-  ])
+  }, [renderer, scene, camera, hoverHighlightMode, zoneLayers, projectId, pipelineVersion])
 
   useFrame((_, delta) => {
-    // WebGL2 backend — skip post-processing, let R3F handle basic rendering
-    if (!isWebGPU) return
-
     // Animate background colour toward the current theme target (same lerp as AnimatedBackground)
     bgTarget.current.set(useViewer.getState().theme === 'dark' ? DARK_BG : LIGHT_BG)
     bgCurrent.current.lerp(bgTarget.current, Math.min(delta, 0.1) * 4)
     bgUniform.current.value.copy(bgCurrent.current)
+
+    const outliner = useViewer.getState().outliner
+    sanitizeOutlineObjects(outliner.selectedObjects)
+    sanitizeOutlineObjects(outliner.hoveredObjects)
 
     if (hasPipelineErrorRef.current || !renderPipelineRef.current) {
       try {

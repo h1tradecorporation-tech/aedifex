@@ -7,7 +7,7 @@ import {
   spatialGridManager,
   useScene,
 } from '@aedifex/core'
-import { clearMaterialCache, InteractiveSystem, useViewer, Viewer } from '@aedifex/viewer'
+import { InteractiveSystem, useViewer, Viewer } from '@aedifex/viewer'
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ViewerOverlay } from '../../components/viewer-overlay'
 import { ViewerZoneSystem } from '../../components/viewer-zone-system'
@@ -23,6 +23,7 @@ import {
 import { initSFXBus } from '../../lib/sfx-bus'
 import useEditor from '../../store/use-editor'
 import { CeilingSystem } from '../systems/ceiling/ceiling-system'
+import { CeilingSelectionAffordanceSystem } from '../systems/ceiling/ceiling-selection-affordance-system'
 import { RoofEditSystem } from '../systems/roof/roof-edit-system'
 import { StairEditSystem } from '../systems/stair/stair-edit-system'
 import { ZoneLabelEditorSystem } from '../systems/zone/zone-label-editor-system'
@@ -55,10 +56,8 @@ import { Grid } from './grid'
 import { PresetThumbnailGenerator } from './preset-thumbnail-generator'
 import { SelectionManager } from './selection-manager'
 import { SiteEdgeLabels } from './site-edge-labels'
-import { ThumbnailGenerator } from './thumbnail-generator'
+import { type SnapshotCameraData, ThumbnailGenerator } from './thumbnail-generator'
 import { WallMeasurementLabel } from './wall-measurement-label'
-import { CameraAzimuthSync } from './compass-hud'
-import { CompassOverlay } from './compass-overlay'
 
 const CAMERA_CONTROLS_HINT_DISMISSED_STORAGE_KEY = 'editor-camera-controls-hint-dismissed:v1'
 const DELETE_CURSOR_BADGE_COLOR = '#ef4444'
@@ -86,10 +85,6 @@ function initializeEditorRuntime(): () => void {
     const outliner = useViewer.getState().outliner
     outliner.selectedObjects.length = 0
     outliner.hoveredObjects.length = 0
-
-    // Release cached Three.js materials to prevent GPU VRAM leaks
-    // across editor sessions (e.g. navigating between projects).
-    clearMaterialCache()
   }
 }
 export interface EditorProps {
@@ -105,7 +100,6 @@ export interface EditorProps {
   sidebarTabs?: (SidebarTab & { component: React.ComponentType })[]
   viewerToolbarLeft?: ReactNode
   viewerToolbarRight?: ReactNode
-
 
   projectId?: string | null
 
@@ -123,7 +117,7 @@ export interface EditorProps {
   isLoading?: boolean
 
   // Thumbnail
-  onThumbnailCapture?: (blob: Blob) => void
+  onThumbnailCapture?: (blob: Blob, cameraData: SnapshotCameraData) => void
 
   // Version preview overlays (rendered by host app)
   sidebarOverlay?: ReactNode
@@ -286,7 +280,6 @@ function ViewerOverlays({ left, children }: { left: number; children: ReactNode 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
 
 function SelectionPersistenceManager({ enabled }: { enabled: boolean }) {
   const selection = useViewer((state) => state.selection)
@@ -519,7 +512,7 @@ const ViewerSceneContent = memo(function ViewerSceneContent({
   isVersionPreviewMode: boolean
   isLoading: boolean
   isFirstPersonMode: boolean
-  onThumbnailCapture?: (blob: Blob) => void
+  onThumbnailCapture?: (blob: Blob, cameraData: SnapshotCameraData) => void
 }) {
   return (
     <>
@@ -531,6 +524,7 @@ const ViewerSceneContent = memo(function ViewerSceneContent({
       <ExportManager />
       {isFirstPersonMode ? <ViewerZoneSystem /> : <ZoneSystem />}
       <CeilingSystem />
+      <CeilingSelectionAffordanceSystem />
       <RoofEditSystem />
       <StairEditSystem />
       {!isLoading && !isFirstPersonMode && (
@@ -543,7 +537,6 @@ const ViewerSceneContent = memo(function ViewerSceneContent({
       <PresetThumbnailGenerator />
       {!isFirstPersonMode && <SiteEdgeLabels />}
       {isFirstPersonMode && <InteractiveSystem />}
-      {!isFirstPersonMode && <CameraAzimuthSync />}
     </>
   )
 })
@@ -602,7 +595,7 @@ const ViewerCanvas = memo(function ViewerCanvas({
   hasLoadedInitialScene: boolean
   showLoader: boolean
   isFirstPersonMode: boolean
-  onThumbnailCapture?: (blob: Blob) => void
+  onThumbnailCapture?: (blob: Blob, cameraData: SnapshotCameraData) => void
 }) {
   const viewMode = useEditor((s) => s.viewMode)
   const floorplanPaneRatio = useEditor((s) => s.floorplanPaneRatio)
@@ -749,7 +742,6 @@ export default function Editor({
 
   const [isSceneLoading, setIsSceneLoading] = useState(false)
   const [hasLoadedInitialScene, setHasLoadedInitialScene] = useState(false)
-  const theme = useViewer((s) => s.theme)
   const isPreviewMode = useEditor((s) => s.isPreviewMode)
   const isFirstPersonMode = useEditor((s) => s.isFirstPersonMode)
 
@@ -822,15 +814,11 @@ export default function Editor({
   }, [isVersionPreviewMode])
 
   useEffect(() => {
-    if (theme === 'dark') {
-      document.body.classList.add('dark')
-    } else {
-      document.body.classList.remove('dark')
-    }
+    document.body.classList.add('dark')
     return () => {
       document.body.classList.remove('dark')
     }
-  }, [theme])
+  }, [])
 
   const showLoader = isLoading || isSceneLoading
 
@@ -889,7 +877,7 @@ export default function Editor({
         )}
 
         {!isLoading && isPreviewMode ? (
-          <div className={`${theme === 'dark' ? 'dark' : ''} flex h-full w-full flex-col bg-neutral-100 text-foreground`}>
+          <div className="dark flex h-full w-full flex-col bg-neutral-100 text-foreground">
             <ViewerOverlay onBack={() => useEditor.getState().setPreviewMode(false)} />
             <div className="h-full w-full">{previewViewerContent}</div>
           </div>
@@ -923,8 +911,6 @@ export default function Editor({
               viewerToolbarLeft={viewerToolbarLeft}
               viewerToolbarRight={viewerToolbarRight}
             />
-            {/* Compass overlay — direction indicator */}
-            <CompassOverlay />
             {/* First-person overlay — rendered on top of normal layout */}
             {isFirstPersonMode && (
               <div className="fixed inset-0 z-50 pointer-events-none">
@@ -947,7 +933,7 @@ export default function Editor({
 
   return (
     <PresetsProvider adapter={presetsAdapter}>
-      <div className={`${theme === 'dark' ? 'dark' : ''} flex h-full w-full gap-3 bg-neutral-100 p-3 text-foreground`}>
+      <div className="dark flex h-full w-full gap-3 bg-neutral-100 p-3 text-foreground">
         {showLoader && (
           <div className="fixed inset-0 z-60">
             <SceneLoader />
@@ -975,9 +961,6 @@ export default function Editor({
 
             {/* Viewer area */}
             <div className="relative flex-1 overflow-hidden rounded-xl">{viewerCanvas}</div>
-
-            {/* Compass overlay — direction indicator */}
-            <CompassOverlay />
 
             {/* Fixed UI overlays scoped to the viewer area */}
             <ViewerOverlays left={overlayLeft}>

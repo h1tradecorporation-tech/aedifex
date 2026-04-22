@@ -11,11 +11,11 @@ import {
   type ZoneNode,
 } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
-import { ArrowLeft, Camera, ChevronRight, Diamond, Footprints, Layers, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, Camera, ChevronRight, Diamond, Layers, Moon, Sun } from 'lucide-react'
 import { motion } from 'motion/react'
 import Link from 'next/link'
+import { useShallow } from 'zustand/react/shallow'
 import { cn } from '../lib/utils'
-import useEditor from '../store/use-editor'
 import { ActionButton } from './ui/action-menu/action-button'
 import { TooltipProvider } from './ui/primitives/tooltip'
 
@@ -88,7 +88,6 @@ export const ViewerOverlay = ({
   onBack,
 }: ViewerOverlayProps) => {
   const selection = useViewer((s) => s.selection)
-  const nodes = useScene((s) => s.nodes)
   const showScans = useViewer((s) => s.showScans)
   const showGuides = useViewer((s) => s.showGuides)
   const cameraMode = useViewer((s) => s.cameraMode)
@@ -96,24 +95,30 @@ export const ViewerOverlay = ({
   const wallMode = useViewer((s) => s.wallMode)
   const theme = useViewer((s) => s.theme)
 
-  const building = selection.buildingId
-    ? (nodes[selection.buildingId] as BuildingNode | undefined)
-    : null
-  const level = selection.levelId ? (nodes[selection.levelId] as LevelNode | undefined) : null
-  const zone = selection.zoneId ? (nodes[selection.zoneId] as ZoneNode | undefined) : null
-
-  // Get the first selected item (if any)
-  const selectedNode =
-    selection.selectedIds.length > 0
-      ? (nodes[selection.selectedIds[0] as AnyNodeId] as AnyNode | undefined)
-      : null
-
-  // Get all levels for the selected building
-  const levels =
-    building?.children
-      .map((id) => nodes[id as AnyNodeId] as LevelNode | undefined)
-      .filter((n): n is LevelNode => n?.type === 'level')
-      .sort((a, b) => a.level - b.level) ?? []
+  // Subscribe only to the specific nodes we read so that creating an unrelated
+  // node elsewhere in the scene doesn't re-render this overlay.
+  const firstSelectedId = selection.selectedIds[0] ?? null
+  const building = useScene((s) =>
+    selection.buildingId ? (s.nodes[selection.buildingId] as BuildingNode | undefined) : null,
+  )
+  const level = useScene((s) =>
+    selection.levelId ? (s.nodes[selection.levelId] as LevelNode | undefined) : null,
+  )
+  const zone = useScene((s) =>
+    selection.zoneId ? (s.nodes[selection.zoneId] as ZoneNode | undefined) : null,
+  )
+  const selectedNode = useScene((s) =>
+    firstSelectedId ? (s.nodes[firstSelectedId as AnyNodeId] as AnyNode | undefined) : null,
+  )
+  const levels = useScene(
+    useShallow((s) => {
+      if (!building) return []
+      return building.children
+        .map((id) => s.nodes[id as AnyNodeId] as LevelNode | undefined)
+        .filter((n): n is LevelNode => n?.type === 'level')
+        .sort((a, b) => a.level - b.level)
+    }),
+  )
 
   const handleLevelClick = (levelId: LevelNode['id']) => {
     // When switching levels, deselect zone and items
@@ -492,20 +497,6 @@ export const ViewerOverlay = ({
                 className="h-[28px] w-[28px] object-contain opacity-70 transition-opacity group-hover:opacity-100"
                 src="/icons/topview.png"
               />
-            </ActionButton>
-
-            <div className="mx-1 h-5 w-px bg-border/40" />
-
-            {/* Street View */}
-            <ActionButton
-              className="group hover:bg-white/5"
-              label="Street View"
-              onClick={() => useEditor.getState().setFirstPersonMode(true)}
-              size="icon"
-              tooltipSide="top"
-              variant="ghost"
-            >
-              <Footprints className="h-5 w-5 opacity-70 transition-opacity group-hover:opacity-100" />
             </ActionButton>
           </div>
         </TooltipProvider>

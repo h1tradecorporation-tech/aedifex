@@ -17,7 +17,7 @@ import { type ExtraPanel, IconRail } from './icon-rail'
 import { SettingsPanel, type SettingsPanelProps } from './panels/settings-panel'
 import { SitePanel, type SitePanelProps } from './panels/site-panel'
 
-export interface AppSidebarProps {
+interface AppSidebarProps {
   appMenuButton?: ReactNode
   sidebarTop?: ReactNode
   settingsPanelProps?: SettingsPanelProps

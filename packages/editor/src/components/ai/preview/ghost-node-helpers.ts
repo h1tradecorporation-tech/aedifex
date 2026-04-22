@@ -1,7 +1,6 @@
 import {
   type AnyNode,
   type AnyNodeId,
-  type JSONType,
   DoorNode,
   ItemNode,
   WallNode as WallSchema,
@@ -9,6 +8,9 @@ import {
   useScene,
 } from '@aedifex/core'
 import type { ValidatedAddDoor, ValidatedAddItem, ValidatedAddWall, ValidatedAddWindow, ValidatedMoveItem } from '../types'
+
+// Local replacement for zod's internal JSONType (not publicly exported in zod v4)
+type JSONType = string | number | boolean | null | JSONType[] | { [key: string]: JSONType }
 
 // ============================================================================
 // Module-level Preview State
@@ -48,7 +50,7 @@ export function resetPreviewState(): void {
 export function buildGhostMetadata(
   existing: unknown,
   flags: { isGhostPreview?: boolean; isGhostRemoval?: boolean },
-): { [key: string]: JSONType } {
+): JSONType {
   const base =
     typeof existing === 'object' && existing !== null ? (existing as { [key: string]: JSONType }) : {}
   return {

@@ -1,21 +1,25 @@
 'use client'
 
-import type { AssetInput } from '@aedifex/core'
 import {
+  type AnyNodeId,
+  type AssetInput,
   type BuildingNode,
   type CeilingNode,
   type DoorNode,
   type FenceNode,
   type ItemNode,
   type LevelNode,
+  type RoofSurfaceMaterialRole,
   type RoofNode,
   type RoofSegmentNode,
   type SlabNode,
   type Space,
+  type StairSurfaceMaterialRole,
   type StairNode,
   type StairSegmentNode,
   useScene,
   type WallNode,
+  type WallSurfaceSide,
   type WindowNode,
 } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
@@ -30,7 +34,6 @@ const MAX_FLOORPLAN_PANE_RATIO = 0.85
 
 export type ViewMode = '3d' | '2d' | 'split'
 export type SplitOrientation = 'horizontal' | 'vertical'
-
 
 export type Phase = 'site' | 'structure' | 'furnish'
 
@@ -71,10 +74,27 @@ export type CatalogCategory =
 export type StructureLayer = 'zones' | 'elements'
 
 export type FloorplanSelectionTool = 'click' | 'marquee'
-
+export type GridSnapStep = 0.5 | 0.25 | 0.1 | 0.05
 
 // Combined tool type
 export type Tool = SiteTool | StructureTool | FurnishTool
+
+export type MovingWallEndpoint = {
+  wall: WallNode
+  endpoint: 'start' | 'end'
+}
+
+export type MovingFenceEndpoint = {
+  fence: FenceNode
+  endpoint: 'start' | 'end'
+}
+
+export type MaterialTargetRole = WallSurfaceSide | StairSurfaceMaterialRole | RoofSurfaceMaterialRole
+
+export type SelectedMaterialTarget = {
+  nodeId: AnyNodeId
+  role: MaterialTargetRole
+}
 
 type EditorState = {
   phase: Phase
@@ -119,8 +139,16 @@ type EditorState = {
       | BuildingNode
       | null,
   ) => void
+  movingWallEndpoint: MovingWallEndpoint | null
+  setMovingWallEndpoint: (value: MovingWallEndpoint | null) => void
+  movingFenceEndpoint: MovingFenceEndpoint | null
+  setMovingFenceEndpoint: (value: MovingFenceEndpoint | null) => void
   curvingWall: WallNode | null
   setCurvingWall: (wall: WallNode | null) => void
+  curvingFence: FenceNode | null
+  setCurvingFence: (fence: FenceNode | null) => void
+  selectedMaterialTarget: SelectedMaterialTarget | null
+  setSelectedMaterialTarget: (target: SelectedMaterialTarget | null) => void
   selectedReferenceId: string | null
   setSelectedReferenceId: (id: string | null) => void
   // Space detection for cutaway mode
@@ -145,6 +173,8 @@ type EditorState = {
   setFloorplanHovered: (hovered: boolean) => void
   floorplanSelectionTool: FloorplanSelectionTool
   setFloorplanSelectionTool: (tool: FloorplanSelectionTool) => void
+  gridSnapStep: GridSnapStep
+  setGridSnapStep: (step: GridSnapStep) => void
   // First-person walkthrough mode (street view)
   isFirstPersonMode: boolean
   _viewModeBeforeFirstPerson: ViewMode | null
@@ -165,10 +195,13 @@ export type PersistedEditorUiState = Pick<
 
 type PersistedEditorLayoutState = Pick<
   EditorState,
-  'activeSidebarPanel' | 'floorplanPaneRatio' | 'splitOrientation' | 'floorplanSelectionTool'
+  | 'activeSidebarPanel'
+  | 'floorplanPaneRatio'
+  | 'splitOrientation'
+  | 'floorplanSelectionTool'
+  | 'gridSnapStep'
 >
 type PersistedEditorState = PersistedEditorUiState & PersistedEditorLayoutState
-
 
 export const DEFAULT_PERSISTED_EDITOR_UI_STATE: PersistedEditorUiState = {
   phase: 'site',
@@ -185,11 +218,14 @@ export const DEFAULT_PERSISTED_EDITOR_LAYOUT_STATE: PersistedEditorLayoutState =
   floorplanPaneRatio: DEFAULT_FLOORPLAN_PANE_RATIO,
   splitOrientation: 'horizontal',
   floorplanSelectionTool: 'click',
+  gridSnapStep: 0.5,
 }
+
+const GRID_SNAP_STEPS: GridSnapStep[] = [0.5, 0.25, 0.1, 0.05]
 
 function normalizeModeForPhase(phase: Phase, mode: Mode | undefined): Mode {
   if (phase === 'site') {
-    return mode === 'edit' ? 'edit' : 'select'
+    return 'select'
   }
 
   return mode === 'build' || mode === 'delete' ? mode : 'select'
@@ -202,7 +238,6 @@ function normalizeFloorplanPaneRatio(value: unknown): number {
 
   return Math.min(MAX_FLOORPLAN_PANE_RATIO, Math.max(MIN_FLOORPLAN_PANE_RATIO, value))
 }
-
 
 export function normalizePersistedEditorUiState(
   state: Partial<PersistedEditorUiState> | null | undefined,
@@ -290,9 +325,11 @@ function normalizePersistedEditorLayoutState(
     floorplanPaneRatio: normalizeFloorplanPaneRatio(state?.floorplanPaneRatio),
     splitOrientation: state?.splitOrientation === 'vertical' ? 'vertical' : 'horizontal',
     floorplanSelectionTool: state?.floorplanSelectionTool === 'marquee' ? 'marquee' : 'click',
+    gridSnapStep: GRID_SNAP_STEPS.includes(state?.gridSnapStep as GridSnapStep)
+      ? (state?.gridSnapStep as GridSnapStep)
+      : DEFAULT_PERSISTED_EDITOR_LAYOUT_STATE.gridSnapStep,
   }
 }
-
 
 export function hasCustomPersistedEditorUiState(
   state: Partial<PersistedEditorUiState> | null | undefined,
@@ -472,6 +509,10 @@ const useEditor = create<EditorState>()(
         | ItemNode
         | WindowNode
         | DoorNode
+        | FenceNode
+        | CeilingNode
+        | SlabNode
+        | WallNode
         | RoofNode
         | RoofSegmentNode
         | StairNode
@@ -479,8 +520,16 @@ const useEditor = create<EditorState>()(
         | BuildingNode
         | null,
       setMovingNode: (node) => set({ movingNode: node }),
+      movingWallEndpoint: null,
+      setMovingWallEndpoint: (value) => set({ movingWallEndpoint: value }),
+      movingFenceEndpoint: null,
+      setMovingFenceEndpoint: (value) => set({ movingFenceEndpoint: value }),
       curvingWall: null,
       setCurvingWall: (wall) => set({ curvingWall: wall }),
+      curvingFence: null,
+      setCurvingFence: (fence) => set({ curvingFence: fence }),
+      selectedMaterialTarget: null,
+      setSelectedMaterialTarget: (target) => set({ selectedMaterialTarget: target }),
       selectedReferenceId: null,
       setSelectedReferenceId: (id) => set({ selectedReferenceId: id }),
       spaces: {},
@@ -512,6 +561,8 @@ const useEditor = create<EditorState>()(
       setFloorplanHovered: (hovered) => set({ isFloorplanHovered: hovered }),
       floorplanSelectionTool: 'click' as FloorplanSelectionTool,
       setFloorplanSelectionTool: (tool) => set({ floorplanSelectionTool: tool }),
+      gridSnapStep: DEFAULT_PERSISTED_EDITOR_LAYOUT_STATE.gridSnapStep,
+      setGridSnapStep: (step) => set({ gridSnapStep: step }),
       allowUndergroundCamera: false,
       setAllowUndergroundCamera: (enabled) => set({ allowUndergroundCamera: enabled }),
       isFirstPersonMode: false,
@@ -547,7 +598,7 @@ const useEditor = create<EditorState>()(
         set({ floorplanPaneRatio: normalizeFloorplanPaneRatio(ratio) }),
     }),
     {
-      name: 'aedifex-editor-ui-preferences',
+      name: 'pascal-editor-ui-preferences',
       merge: (persistedState, currentState) => {
         const mergedState = {
           ...currentState,
@@ -577,6 +628,7 @@ const useEditor = create<EditorState>()(
         floorplanPaneRatio: state.floorplanPaneRatio,
         splitOrientation: state.splitOrientation,
         floorplanSelectionTool: state.floorplanSelectionTool,
+        gridSnapStep: state.gridSnapStep,
       }),
     },
   ),

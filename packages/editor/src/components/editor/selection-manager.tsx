@@ -5,16 +5,24 @@ import {
   emitter,
   type ItemNode,
   type NodeEvent,
+  type RoofEvent,
+  type RoofSegmentEvent,
   resolveLevelId,
   sceneRegistry,
+  type StairEvent,
+  type StairNode,
+  type StairSurfaceMaterialRole,
+  type StairSegmentEvent,
   useScene,
+  type WallEvent,
+  type WallSurfaceSide,
 } from '@aedifex/core'
 
 import { useViewer } from '@aedifex/viewer'
 import { useCallback, useEffect, useRef } from 'react'
-import { Color, type Material, type Mesh, type Object3D } from 'three'
+import { Color, type BufferGeometry, type Material, type Mesh, type Object3D } from 'three'
 import { sfxEmitter } from '../../lib/sfx-bus'
-import useEditor, { type Phase, type StructureLayer } from './../../store/use-editor'
+import useEditor, { type MaterialTargetRole, type Phase, type StructureLayer } from './../../store/use-editor'
 import { boxSelectHandled } from '../tools/select/box-select-tool'
 
 const isNodeInCurrentLevel = (node: AnyNode): boolean => {
@@ -66,6 +74,123 @@ export const resolveBuildingId = (
     return level.parentId
   }
   return null
+}
+
+function resolveWallMaterialTarget(event: WallEvent): WallSurfaceSide | null {
+  const materialIndex = getIntersectionMaterialIndex(getEventObject(event), event.faceIndex)
+  if (materialIndex === 1) return 'interior'
+  if (materialIndex === 2) return 'exterior'
+
+  const normalZ = event.normal?.[2]
+  const localZ = event.localPosition[2]
+  const thickness = event.node.thickness ?? 0.1
+
+  if (
+    normalZ === undefined ||
+    Math.abs(normalZ) < 0.65 ||
+    Math.abs(localZ) < Math.max(thickness * 0.2, 0.01)
+  ) {
+    return null
+  }
+
+  const hitFace = localZ >= 0 ? 'front' : 'back'
+  const semantic = hitFace === 'front' ? event.node.frontSide : event.node.backSide
+
+  if (semantic === 'interior' || semantic === 'exterior') {
+    return semantic
+  }
+
+  return hitFace === 'front' ? 'interior' : 'exterior'
+}
+
+function resolveStairMaterialTarget(
+  event: StairEvent | StairSegmentEvent,
+): StairSurfaceMaterialRole | null {
+  const hitObjectName = event.nativeEvent.object?.name ?? ''
+  const materialIndex = getIntersectionMaterialIndex(getEventObject(event), event.faceIndex)
+
+  if (hitObjectName.startsWith('stair-railing')) {
+    return 'railing'
+  }
+
+  if (hitObjectName.startsWith('stair-side')) {
+    return 'side'
+  }
+
+  if (materialIndex === 0) {
+    return 'tread'
+  }
+
+  if (materialIndex === 1) {
+    return 'side'
+  }
+
+  const normalY = event.normal?.[1]
+  if (normalY !== undefined && normalY > 0.75) {
+    return 'tread'
+  }
+
+  if (normalY !== undefined && Math.abs(normalY) <= 0.75) {
+    return 'side'
+  }
+
+  return null
+}
+
+function resolveRoofMaterialTarget(
+  event: RoofEvent | RoofSegmentEvent,
+): 'top' | 'edge' | 'wall' | null {
+  const materialIndex = getIntersectionMaterialIndex(getEventObject(event), event.faceIndex)
+  if (materialIndex === 3) return 'top'
+  if (materialIndex === 0) return 'edge'
+  if (materialIndex === 1 || materialIndex === 2) return 'wall'
+
+  const normalY = event.normal?.[1]
+  if (normalY !== undefined && normalY > 0.35) return 'top'
+  if (normalY !== undefined && Math.abs(normalY) <= 0.35) return 'edge'
+  if (normalY !== undefined && normalY < -0.35) return 'wall'
+
+  return null
+}
+
+function getEventObject(event: NodeEvent): Object3D {
+  const eventWithObject = event as NodeEvent & { object?: Object3D }
+  return eventWithObject.object ?? event.nativeEvent.object
+}
+
+function getIntersectionMaterialIndex(
+  object: Object3D,
+  faceIndex: number | undefined,
+): number | undefined {
+  if (faceIndex === undefined) return undefined
+
+  const geometry = (object as Mesh).geometry as BufferGeometry | undefined
+  if (!geometry || geometry.groups.length === 0) return undefined
+
+  const triangleStart = faceIndex * 3
+  const group = geometry.groups.find(
+    (entry) => triangleStart >= entry.start && triangleStart < entry.start + entry.count,
+  )
+
+  return group?.materialIndex
+}
+
+function setSelectedMaterialTargetForNode(
+  node: AnyNode,
+  role: MaterialTargetRole | null,
+) {
+  if (!role) {
+    const currentTarget = useEditor.getState().selectedMaterialTarget
+    if (currentTarget?.nodeId !== node.id) {
+      useEditor.getState().setSelectedMaterialTarget(null)
+    }
+    return
+  }
+
+  useEditor.getState().setSelectedMaterialTarget({
+    nodeId: node.id as AnyNodeId,
+    role,
+  })
 }
 
 const HIGHLIGHT_PROFILES = {
@@ -344,17 +469,10 @@ export const SelectionManager = () => {
     ctrl: false,
   })
   const clickHandledRef = useRef(false)
-  const clickHandledTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const movingNode = useEditor((s) => s.movingNode)
   const curvingWall = useEditor((s) => s.curvingWall)
-
-  // Clean up click-handled timer on unmount
-  useEffect(() => {
-    return () => {
-      if (clickHandledTimerRef.current) clearTimeout(clickHandledTimerRef.current)
-    }
-  }, [])
+  const curvingFence = useEditor((s) => s.curvingFence)
 
   useEffect(() => {
     setHoverHighlightMode(mode === 'delete' ? 'delete' : 'default')
@@ -393,7 +511,7 @@ export const SelectionManager = () => {
 
   useEffect(() => {
     if (mode !== 'select') return
-    if (movingNode || curvingWall) return
+    if (movingNode || curvingWall || curvingFence) return
 
     const onClick = (event: NodeEvent) => {
       // Skip if box-select just completed (drag ended over a node)
@@ -447,11 +565,45 @@ export const SelectionManager = () => {
 
         activeStrategy.handleSelect(nodeToSelect, event.nativeEvent, modifierKeysRef.current)
 
+        let nextMaterialTargetHandled = false
+
+        if (node.type === 'wall' && nodeToSelect.type === 'wall') {
+          setSelectedMaterialTargetForNode(
+            nodeToSelect,
+            resolveWallMaterialTarget(event as WallEvent),
+          )
+          nextMaterialTargetHandled = true
+        }
+
+        if (
+          (node.type === 'stair' || node.type === 'stair-segment') &&
+          nodeToSelect.type === 'stair'
+        ) {
+          setSelectedMaterialTargetForNode(
+            nodeToSelect,
+            resolveStairMaterialTarget(event as StairEvent | StairSegmentEvent),
+          )
+          nextMaterialTargetHandled = true
+        }
+
+        if (
+          (node.type === 'roof' || node.type === 'roof-segment') &&
+          nodeToSelect.type === 'roof'
+        ) {
+          setSelectedMaterialTargetForNode(
+            nodeToSelect,
+            resolveRoofMaterialTarget(event as RoofEvent | RoofSegmentEvent),
+          )
+          nextMaterialTargetHandled = true
+        }
+
+        if (!nextMaterialTargetHandled && useEditor.getState().selectedMaterialTarget) {
+          useEditor.getState().setSelectedMaterialTarget(null)
+        }
+
         // Reset the handled flag after a short delay to allow grid:click to be ignored
-        if (clickHandledTimerRef.current) clearTimeout(clickHandledTimerRef.current)
-        clickHandledTimerRef.current = setTimeout(() => {
+        setTimeout(() => {
           clickHandledRef.current = false
-          clickHandledTimerRef.current = null
         }, 50)
       }
     }
@@ -481,6 +633,7 @@ export const SelectionManager = () => {
       const { phase, structureLayer } = useEditor.getState()
       const activeStrategy = SELECTION_STRATEGIES[phase]
       if (activeStrategy) activeStrategy.handleDeselect()
+      useEditor.getState().setSelectedMaterialTarget(null)
 
       // When deselecting from zone mode, return to structure select
       if (phase === 'structure' && structureLayer === 'zones') {
@@ -496,12 +649,12 @@ export const SelectionManager = () => {
       })
       emitter.off('grid:click', onGridClick)
     }
-  }, [curvingWall, mode, movingNode])
+  }, [curvingFence, curvingWall, mode, movingNode])
 
   // Global double-click handler for auto-switching phases and cross-phase hover
   useEffect(() => {
     if (mode !== 'select') return
-    if (movingNode || curvingWall) return
+    if (movingNode || curvingWall || curvingFence) return
 
     const onEnter = (event: NodeEvent) => {
       const node = event.node
@@ -630,7 +783,7 @@ export const SelectionManager = () => {
         emitter.off(`${type}:double-click` as any, onDoubleClick as any)
       })
     }
-  }, [curvingWall, mode, movingNode])
+  }, [curvingFence, curvingWall, mode, movingNode])
 
   // Delete mode: click-to-delete (sledgehammer tool)
   useEffect(() => {
@@ -714,6 +867,12 @@ export const SelectionManager = () => {
 }
 
 const SelectionStateSync = () => {
+  const selectedMaterialTarget = useEditor((s) => s.selectedMaterialTarget)
+  const setSelectedMaterialTarget = useEditor((s) => s.setSelectedMaterialTarget)
+  const singleSelectedId = useViewer((s) =>
+    s.selection.selectedIds.length === 1 ? s.selection.selectedIds[0] : null,
+  )
+
   useEffect(() => {
     return useScene.subscribe((state) => {
       const { buildingId, levelId, zoneId, selectedIds } = useViewer.getState().selection
@@ -741,6 +900,28 @@ const SelectionStateSync = () => {
       }
     })
   }, [])
+
+  useEffect(() => {
+    if (!selectedMaterialTarget) return
+
+    if (!singleSelectedId) {
+      setSelectedMaterialTarget(null)
+      return
+    }
+
+    const selectedNode = useScene.getState().nodes[singleSelectedId as AnyNodeId]
+    if (
+      !selectedNode ||
+      (selectedNode.type !== 'wall' && selectedNode.type !== 'stair' && selectedNode.type !== 'roof')
+    ) {
+      setSelectedMaterialTarget(null)
+      return
+    }
+
+    if (selectedMaterialTarget.nodeId !== selectedNode.id) {
+      setSelectedMaterialTarget(null)
+    }
+  }, [selectedMaterialTarget, setSelectedMaterialTarget, singleSelectedId])
 
   return null
 }

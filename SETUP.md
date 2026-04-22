@@ -1,83 +1,55 @@
-# Aedifex - Setup Guide
-
-This guide will help you set up the Aedifex editor for local development.
+# Pascal Editor — Setup
 
 ## Prerequisites
 
-- Node.js 18+
-- pnpm 10+ (`corepack enable && corepack prepare pnpm@latest --activate`)
+- [Bun](https://bun.sh/) 1.3+ (or Node.js 18+)
 
 ## Quick Start
 
 ```bash
-pnpm install
+bun install
+bun dev
 ```
 
-### 2. Configure Environment Variables
+The editor will be running at **http://localhost:3000**.
 
-Create `apps/editor/.env.local`:
+## Environment Variables (optional)
+
+Copy `.env.example` to `.env` if you need:
 
 ```bash
-# AI Assistant (optional — powers the AI chat feature)
-AI_API_KEY=<your_openai_compatible_api_key>
-
-# Google Maps (optional — for address search)
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<your_google_maps_key>
+cp .env.example .env
 ```
 
-### 3. Start the Development Server
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | No | Enables address search in the editor |
+| `PORT` | No | Dev server port (default: 3000) |
 
-```bash
-pnpm dev
-```
-
-The editor will be available at http://localhost:3002
+The editor works fully without any environment variables.
 
 ## Monorepo Structure
 
 ```
 ├── apps/
-│   └── editor/              # Next.js editor application
-│       ├── app/             # Next.js app routes
-│       └── components/      # UI components
+│   └── editor/          # Next.js editor application
 ├── packages/
-│   ├── core/               # @aedifex/core - Core editor logic
-│   ├── viewer/             # @aedifex/viewer - 3D viewer
-│   ├── editor/             # @aedifex/editor - Editor components
-│   └── ui/                 # @repo/ui - Shared UI components
-└── turbo.json
+│   ├── core/            # @aedifex/core — Scene schema, state, systems
+│   ├── viewer/          # @aedifex/viewer — 3D rendering
+│   └── ui/              # Shared UI components
+└── tooling/             # Build & release tooling
 ```
 
-## Scene Management
+## Scripts
 
-- **Save Build**: Export your scene as a JSON file for backup or sharing
-- **Load Build**: Import a previously saved JSON file
-- **Auto-Save**: The editor auto-saves to localStorage
+| Command | Description |
+|---------|-------------|
+| `bun dev` | Start the development server |
+| `bun build` | Build all packages |
+| `bun check` | Lint and format check (Biome) |
+| `bun check:fix` | Auto-fix lint and format issues |
+| `bun check-types` | TypeScript type checking |
 
-## Development Workflow
+## Contributing
 
-### Running Tests
-
-```bash
-pnpm test
-```
-
-### Linting & Formatting
-
-```bash
-pnpm check     # Biome check
-pnpm format    # Biome format
-```
-
-## Troubleshooting
-
-### Editor not loading
-
-Make sure all dependencies are installed:
-```bash
-pnpm install
-```
-
-### AI Chat not working
-
-Verify that `AI_API_KEY` is set in `apps/editor/.env.local`.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on submitting PRs and reporting issues.

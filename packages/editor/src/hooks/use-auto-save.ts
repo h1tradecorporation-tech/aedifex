@@ -4,7 +4,7 @@ import { useScene } from '@aedifex/core'
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react'
 import { type SceneGraph, saveSceneToLocalStorage } from '../lib/scene'
 
-const AUTOSAVE_DEBOUNCE_MS = 2000
+const AUTOSAVE_DEBOUNCE_MS = 1000
 
 export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'paused' | 'error'
 
@@ -59,7 +59,7 @@ export function useAutoSave({
 
   // Stable subscription to scene changes
   useEffect(() => {
-    let lastNodesVersion = useScene.getState().nodesVersion
+    let lastNodesSnapshot = JSON.stringify(useScene.getState().nodes)
 
     async function executeSave() {
       if (isLoadingSceneRef.current || isVersionPreviewModeRef.current) {
@@ -103,20 +103,20 @@ export function useAutoSave({
 
     const unsubscribe = useScene.subscribe((state) => {
       if (isLoadingSceneRef.current) {
-        lastNodesVersion = state.nodesVersion
+        lastNodesSnapshot = JSON.stringify(state.nodes)
         return
       }
 
       if (isVersionPreviewModeRef.current) {
         setSaveStatus('paused')
-        lastNodesVersion = state.nodesVersion
+        lastNodesSnapshot = JSON.stringify(state.nodes)
         return
       }
 
-      const currentVersion = state.nodesVersion
-      if (currentVersion === lastNodesVersion) return
+      const currentNodesSnapshot = JSON.stringify(state.nodes)
+      if (currentNodesSnapshot === lastNodesSnapshot) return
 
-      lastNodesVersion = currentVersion
+      lastNodesSnapshot = currentNodesSnapshot
       hasDirtyChangesRef.current = true
       onDirtyRef.current?.()
       setSaveStatus('pending')

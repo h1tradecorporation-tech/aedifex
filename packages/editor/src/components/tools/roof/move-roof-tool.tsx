@@ -1,7 +1,9 @@
 import {
   type AnyNodeId,
   emitter,
+  type FenceNode,
   type GridEvent,
+  type LevelNode,
   type RoofNode,
   type RoofSegmentNode,
   type StairNode,
@@ -9,13 +11,16 @@ import {
   sceneRegistry,
   useLiveTransforms,
   useScene,
+  type WallNode,
 } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { sfxEmitter } from '../../../lib/sfx-bus'
 import useEditor from '../../../store/use-editor'
+import { snapFenceDraftPoint } from '../fence/fence-drafting'
 import { CursorSphere } from '../shared/cursor-sphere'
+import type { WallPlanPoint } from '../wall/wall-drafting'
 
 export const MoveRoofTool: React.FC<{
   node: RoofNode | RoofSegmentNode | StairNode | StairSegmentNode
@@ -29,9 +34,13 @@ export const MoveRoofTool: React.FC<{
   const [cursorWorldPos, setCursorWorldPos] = useState<[number, number, number]>(() => {
     const obj = sceneRegistry.nodes.get(movingNode.id)
     if (obj) {
-      const pos = new THREE.Vector3()
-      obj.getWorldPosition(pos)
-      return [pos.x, pos.y, pos.z]
+      const worldPos = obj.getWorldPosition(new THREE.Vector3())
+      // Cursor renders inside the building-local ToolManager group, so convert
+      // world → building-local to honor any building rotation.
+      const buildingId = useViewer.getState().selection.buildingId
+      const buildingObj = buildingId ? sceneRegistry.nodes.get(buildingId as AnyNodeId) : null
+      if (buildingObj) buildingObj.worldToLocal(worldPos)
+      return [worldPos.x, worldPos.y, worldPos.z]
     }
     // Fallback if not registered (e.g. newly created duplicate without mesh yet)
     if (
@@ -114,10 +123,55 @@ export const MoveRoofTool: React.FC<{
       }
     }
 
-    const computeLocal = (gridX: number, gridZ: number, y: number): [number, number] => {
-      let localX = gridX
-      let localZ = gridZ
+    const resolveLevelId = () => {
+      if (movingNode.type === 'roof' || movingNode.type === 'stair') {
+        return movingNode.parentId ?? null
+      }
 
+      if (
+        (movingNode.type === 'roof-segment' || movingNode.type === 'stair-segment') &&
+        movingNode.parentId
+      ) {
+        const parentNode = useScene.getState().nodes[movingNode.parentId as AnyNodeId]
+        return parentNode && 'parentId' in parentNode ? (parentNode.parentId ?? null) : null
+      }
+
+      return null
+    }
+
+    const levelId = resolveLevelId()
+    const levelNode =
+      levelId && useScene.getState().nodes[levelId as AnyNodeId]?.type === 'level'
+        ? (useScene.getState().nodes[levelId as AnyNodeId] as LevelNode)
+        : null
+    const levelChildren = levelNode?.children ?? []
+    const levelWalls = levelChildren
+      .map((childId) => useScene.getState().nodes[childId as AnyNodeId])
+      .filter((node): node is WallNode => node?.type === 'wall')
+    const levelFences = levelChildren
+      .map((childId) => useScene.getState().nodes[childId as AnyNodeId])
+      .filter((node): node is FenceNode => node?.type === 'fence')
+    const buildingId = useViewer.getState().selection.buildingId
+    const buildingObj = buildingId ? sceneRegistry.nodes.get(buildingId as AnyNodeId) : null
+
+    const localToWorldPoint = (localPoint: WallPlanPoint, y: number): [number, number, number] => {
+      if (buildingObj) {
+        const worldPoint = buildingObj.localToWorld(new THREE.Vector3(localPoint[0], y, localPoint[1]))
+        return [worldPoint.x, worldPoint.y, worldPoint.z]
+      }
+
+      return [localPoint[0], y, localPoint[1]]
+    }
+
+    const computeLocal = (
+      gridX: number,
+      gridZ: number,
+      y: number,
+      buildingLocalX: number,
+      buildingLocalZ: number,
+    ): [number, number] => {
+      // Segments have a transformed parent (stair/roof). Convert world → parent-local
+      // via Three.js hierarchy so the segment's stored position stays parent-relative.
       if (
         (movingNode.type === 'roof-segment' || movingNode.type === 'stair-segment') &&
         movingNode.parentId
@@ -128,40 +182,42 @@ export const MoveRoofTool: React.FC<{
           if (parentObj) {
             const worldVec = new THREE.Vector3(gridX, y, gridZ)
             parentObj.worldToLocal(worldVec)
-            localX = worldVec.x
-            localZ = worldVec.z
-          } else {
-            const dx = gridX - (parentNode.position[0] as number)
-            const dz = gridZ - (parentNode.position[2] as number)
-            const angle = -(parentNode.rotation as number)
-            localX = dx * Math.cos(angle) - dz * Math.sin(angle)
-            localZ = dx * Math.sin(angle) + dz * Math.cos(angle)
+            return [worldVec.x, worldVec.z]
           }
+          const dx = gridX - (parentNode.position[0] as number)
+          const dz = gridZ - (parentNode.position[2] as number)
+          const angle = -(parentNode.rotation as number)
+          return [
+            dx * Math.cos(angle) - dz * Math.sin(angle),
+            dx * Math.sin(angle) + dz * Math.cos(angle),
+          ]
         }
       }
 
-      return [localX, localZ]
+      // Stair/roof live directly in the level — their stored position is building-local.
+      // event.localPosition is already building-local, so using it handles building rotation.
+      return [buildingLocalX, buildingLocalZ]
     }
 
     const onGridMove = (event: GridEvent) => {
-      const gridX = Math.round(event.position[0] * 2) / 2
-      const gridZ = Math.round(event.position[2] * 2) / 2
       const y = event.position[1]
 
-      if (
-        previousGridPosRef.current &&
-        (gridX !== previousGridPosRef.current[0] || gridZ !== previousGridPosRef.current[1])
-      ) {
+      const snappedLocal = snapFenceDraftPoint({
+        point: [event.localPosition[0], event.localPosition[2]],
+        walls: levelWalls,
+        fences: levelFences,
+      })
+      const [gridX, , gridZ] = localToWorldPoint(snappedLocal, y)
+
+      if (previousGridPosRef.current && (gridX !== previousGridPosRef.current[0] || gridZ !== previousGridPosRef.current[1])) {
         sfxEmitter.emit('sfx:grid-snap')
       }
 
       previousGridPosRef.current = [gridX, gridZ]
-      // Cursor is inside the building-local ToolManager group — use local position
-      const lx = Math.round(event.localPosition[0] * 2) / 2
-      const lz = Math.round(event.localPosition[2] * 2) / 2
+      const [lx, lz] = snappedLocal
       setCursorWorldPos([lx, event.localPosition[1], lz])
 
-      const [localX, localZ] = computeLocal(gridX, gridZ, y)
+      const [localX, localZ] = computeLocal(gridX, gridZ, y, lx, lz)
 
       // Directly update the Three.js mesh — no store update during drag
       const mesh = sceneRegistry.nodes.get(movingNode.id)
@@ -178,11 +234,16 @@ export const MoveRoofTool: React.FC<{
     }
 
     const onGridClick = (event: GridEvent) => {
-      const gridX = Math.round(event.position[0] * 2) / 2 // world, for computeLocal
-      const gridZ = Math.round(event.position[2] * 2) / 2
       const y = event.position[1]
+      const snappedLocal = snapFenceDraftPoint({
+        point: [event.localPosition[0], event.localPosition[2]],
+        walls: levelWalls,
+        fences: levelFences,
+      })
+      const [gridX, , gridZ] = localToWorldPoint(snappedLocal, y)
+      const [lx, lz] = snappedLocal
 
-      const [localX, localZ] = computeLocal(gridX, gridZ, y)
+      const [localX, localZ] = computeLocal(gridX, gridZ, y, lx, lz)
 
       wasCommitted = true
 

@@ -24,19 +24,17 @@ import { PanelWrapper } from './panel-wrapper'
 import { PresetsPopover } from './presets/presets-popover'
 
 export function WindowPanel() {
-  const selectedIds = useViewer((s) => s.selection.selectedIds)
+  const selectedId = useViewer((s) => s.selection.selectedIds[0])
   const setSelection = useViewer((s) => s.setSelection)
-  const nodes = useScene((s) => s.nodes)
   const updateNode = useScene((s) => s.updateNode)
   const deleteNode = useScene((s) => s.deleteNode)
   const setMovingNode = useEditor((s) => s.setMovingNode)
 
   const adapter = usePresetsAdapter()
 
-  const selectedId = selectedIds[0]
-  const node = selectedId
-    ? (nodes[selectedId as AnyNode['id']] as WindowNode | undefined)
-    : undefined
+  const node = useScene((s) =>
+    selectedId ? (s.nodes[selectedId as AnyNode['id']] as WindowNode | undefined) : undefined,
+  )
 
   const handleUpdate = useCallback(
     (updates: Partial<WindowNode>) => {
@@ -153,7 +151,7 @@ export function WindowPanel() {
     [handleUpdate],
   )
 
-  if (!node || node.type !== 'window' || selectedIds.length !== 1) return null
+  if (!(node && node.type === 'window' && selectedId)) return null
 
   const numCols = node.columnRatios.length
   const numRows = node.rowRatios.length
@@ -199,12 +197,15 @@ export function WindowPanel() {
       {/* Presets strip */}
       <div className="border-border/30 border-b px-3 pt-2.5 pb-1.5">
         <PresetsPopover
+          isAuthenticated={adapter.isAuthenticated}
           onApply={handleApplyPreset}
           onDelete={(id) => adapter.deletePreset(id)}
-          onFetchPresets={() => adapter.fetchPresets('window')}
+          onFetchPresets={(tab) => adapter.fetchPresets('window', tab)}
           onOverwrite={handleOverwritePreset}
           onRename={(id, name) => adapter.renamePreset(id, name)}
           onSave={handleSavePreset}
+          onToggleCommunity={adapter.togglePresetCommunity}
+          tabs={adapter.tabs}
           type="window"
         >
           <button className="flex w-full items-center gap-2 rounded-lg border border-border/50 bg-[#2C2C2E] px-3 py-2 font-medium text-muted-foreground text-xs transition-colors hover:bg-[#3e3e3e] hover:text-foreground">

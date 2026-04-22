@@ -27,19 +27,15 @@ export const InlineRenameInput = memo(function InlineRenameInput({
   const inputSize = Math.max((value || defaultName).length, 1)
 
   useEffect(() => {
-    let focusTimer: ReturnType<typeof setTimeout> | null = null
     if (isEditing) {
       setValue(name || '')
       // Focus and select all text after a short delay
-      focusTimer = setTimeout(() => {
+      setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus()
           inputRef.current.select()
         }
       }, 0)
-    }
-    return () => {
-      if (focusTimer) clearTimeout(focusTimer)
     }
   }, [isEditing, name])
 

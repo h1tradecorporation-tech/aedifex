@@ -1,8 +1,19 @@
-import { type AnyNodeId, type StairNode, type StairSegmentNode, useRegistry, useScene } from '@aedifex/core'
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import {
+  type AnyNodeId,
+  type StairNode,
+  type StairSegmentNode,
+  useRegistry,
+  useScene,
+} from '@aedifex/core'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useNodeEvents } from '../../../hooks/use-node-events'
 import { createMaterial, createMaterialFromPresetRef, DEFAULT_STAIR_MATERIAL } from '../../../lib/materials'
+import {
+  getStairRailingMaterial,
+  getStairBodyMaterials,
+  type StairBodyMaterials,
+} from '../../../systems/stair/stair-materials'
 import { NodeRenderer } from '../node-renderer'
 
 type SegmentTransform = {
@@ -37,6 +48,7 @@ type LandingChainNextStair = {
 
 export const StairRenderer = ({ node }: { node: StairNode }) => {
   const ref = useRef<THREE.Group>(null!)
+  const isSegmentBasedStair = node.stairType === 'straight'
 
   useRegistry(node.id, 'stair', ref)
 
@@ -52,7 +64,55 @@ export const StairRenderer = ({ node }: { node: StairNode }) => {
     const mat = node.material
     if (!mat) return DEFAULT_STAIR_MATERIAL
     return createMaterial(mat)
-  }, [node.materialPreset, node.material, node.material?.preset, node.material?.properties, node.material?.texture])
+  }, [
+    node.materialPreset,
+    node.material,
+    node.material?.preset,
+    node.material?.properties,
+    node.material?.texture,
+  ])
+
+  const straightBodyMaterials = useMemo(
+    () => getStairBodyMaterials(node),
+    [
+      node.material,
+      node.materialPreset,
+      node.railingMaterial,
+      node.railingMaterialPreset,
+      node.sideMaterial,
+      node.sideMaterialPreset,
+      node.treadMaterial,
+      node.treadMaterialPreset,
+    ],
+  )
+
+  const railingMaterial = useMemo(
+    () => getStairRailingMaterial(node),
+    [
+      node.material,
+      node.materialPreset,
+      node.railingMaterial,
+      node.railingMaterialPreset,
+      node.sideMaterial,
+      node.sideMaterialPreset,
+      node.treadMaterial,
+      node.treadMaterialPreset,
+    ],
+  )
+
+  const straightPlaceholderGeometry = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+    geometry.addGroup(0, 0, 0)
+    geometry.addGroup(0, 0, 1)
+    return geometry
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      straightPlaceholderGeometry.dispose()
+    }
+  }, [straightPlaceholderGeometry])
 
   return (
     <group
@@ -63,18 +123,24 @@ export const StairRenderer = ({ node }: { node: StairNode }) => {
       visible={node.visible}
       {...handlers}
     >
-      <mesh castShadow material={material} name="merged-stair" receiveShadow>
-        <boxGeometry args={[0, 0, 0]} />
-      </mesh>
-      {node.stairType === 'curved' || node.stairType === 'spiral' ? (
-        <CurvedStairBody material={material} stair={node} />
+      {isSegmentBasedStair ? (
+        <mesh
+          castShadow
+          geometry={straightPlaceholderGeometry}
+          material={straightBodyMaterials}
+          name="merged-stair"
+          receiveShadow
+        />
       ) : null}
-      <StairRailings material={material} stair={node} />
-      <group name="segments-wrapper" visible={false}>
-        {(node.children ?? []).map((childId) => (
-          <NodeRenderer key={childId} nodeId={childId} />
-        ))}
-      </group>
+      {!isSegmentBasedStair ? <CurvedStairBody bodyMaterials={straightBodyMaterials} stair={node} /> : null}
+      <StairRailings material={railingMaterial} stair={node} />
+      {isSegmentBasedStair ? (
+        <group name="segments-wrapper" visible={false}>
+          {(node.children ?? []).map((childId) => (
+            <NodeRenderer key={childId} nodeId={childId} />
+          ))}
+        </group>
+      ) : null}
     </group>
   )
 }
@@ -86,11 +152,17 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
     () =>
       (stair.children ?? [])
         .map((childId) => nodes[childId as AnyNodeId] as StairSegmentNode | undefined)
-        .filter((node): node is StairSegmentNode => node?.type === 'stair-segment' && node.visible !== false),
+        .filter(
+          (node): node is StairSegmentNode =>
+            node?.type === 'stair-segment' && node.visible !== false,
+        ),
     [nodes, stair.children],
   )
 
-  const railPaths = useMemo(() => buildStairRailPaths(segments, stair.railingMode ?? 'none'), [segments, stair.railingMode])
+  const railPaths = useMemo(
+    () => buildStairRailPaths(segments, stair.railingMode ?? 'none'),
+    [segments, stair.railingMode],
+  )
 
   const railHeight = stair.railingHeight ?? 0.92
   const midRailHeight = Math.max(railHeight * 0.45, 0.35)
@@ -103,10 +175,14 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
 
   if (stair.stairType === 'curved' || stair.stairType === 'spiral') {
     const stepCount = Math.max(2, Math.round(stair.stepCount ?? 10))
-    const sweepAngle = stair.sweepAngle ?? (stair.stairType === 'spiral' ? Math.PI * 2 : Math.PI / 2)
+    const sweepAngle =
+      stair.sweepAngle ?? (stair.stairType === 'spiral' ? Math.PI * 2 : Math.PI / 2)
     const stepSweep = sweepAngle / stepCount
     const stepHeight = Math.max(stair.totalRise ?? 2.5, 0.1) / stepCount
-    const innerRadius = Math.max(stair.stairType === 'spiral' ? 0.05 : 0.2, stair.innerRadius ?? 0.9)
+    const innerRadius = Math.max(
+      stair.stairType === 'spiral' ? 0.05 : 0.2,
+      stair.innerRadius ?? 0.9,
+    )
     const outerRadius = innerRadius + Math.max(stair.width ?? 1, 0.4)
     const leftRadius = sweepAngle >= 0 ? innerRadius + 0.04 : outerRadius - 0.04
     const rightRadius = sweepAngle >= 0 ? outerRadius - 0.04 : innerRadius + 0.04
@@ -141,6 +217,7 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
                   geometry={BALUSTER_GEOMETRY}
                   key={`${stair.id}-curved-baluster-${sideIndex}-${pointIndex}`}
                   material={material}
+                  name="stair-railing-baluster"
                   position={[point[0], point[1] + railHeight / 2, point[2]]}
                   receiveShadow
                   scale={[balusterRadius, railHeight, balusterRadius]}
@@ -183,7 +260,11 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
       {railPaths.map((segmentPath, index) => (
         <group
           key={`${segmentPath.layout.segment.id}-railing`}
-          position={[segmentPath.layout.center[0], segmentPath.layout.elevation, segmentPath.layout.center[1]]}
+          position={[
+            segmentPath.layout.center[0],
+            segmentPath.layout.elevation,
+            segmentPath.layout.center[1],
+          ]}
           rotation-y={segmentPath.layout.rotation}
         >
           {segmentPath.sidePaths.map((sidePath, sideIndex) => (
@@ -194,6 +275,7 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
                   geometry={BALUSTER_GEOMETRY}
                   key={`${segmentPath.layout.segment.id}-${sidePath.side}-baluster-${pointIndex}`}
                   material={material}
+                  name="stair-railing-baluster"
                   position={[point[2], point[1] + railHeight / 2, point[0]]}
                   receiveShadow
                   scale={[balusterRadius, railHeight, balusterRadius]}
@@ -204,7 +286,9 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
                 if (!nextPoint) return null
 
                 return (
-                  <group key={`${segmentPath.layout.segment.id}-${sidePath.side}-rail-${pointIndex}`}>
+                  <group
+                    key={`${segmentPath.layout.segment.id}-${sidePath.side}-rail-${pointIndex}`}
+                  >
                     <RailSegment
                       end={[nextPoint[2], nextPoint[1] + railHeight, nextPoint[0]]}
                       material={material}
@@ -240,14 +324,15 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
               const lastPoint = entry.points[entry.points.length - 1]
               return {
                 entry,
-                distance: lastPoint ? distance3(toWorldRailPoint(previousPath.layout, lastPoint), currentWorldPoint) : Number.POSITIVE_INFINITY,
+                distance: lastPoint
+                  ? distance3(toWorldRailPoint(previousPath.layout, lastPoint), currentWorldPoint)
+                  : Number.POSITIVE_INFINITY,
               }
             })
             .sort((left, right) => left.distance - right.distance)[0]?.entry
-          const previousPoint =
-            previousSidePath && previousSidePath.points.length
-              ? previousSidePath.points[previousSidePath.points.length - 1]
-              : null
+          const previousPoint = previousSidePath?.points.length
+            ? previousSidePath.points[previousSidePath.points.length - 1]
+            : null
 
           if (!(previousPoint && currentPoint)) {
             return null
@@ -256,18 +341,36 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
           const previousWorldPoint = toWorldRailPoint(previousPath.layout, previousPoint)
 
           return (
-            <group key={`${previousPath.layout.segment.id}-${segmentPath.layout.segment.id}-${sideIndex}`}>
+            <group
+              key={`${previousPath.layout.segment.id}-${segmentPath.layout.segment.id}-${sideIndex}`}
+            >
               <RailSegment
-                end={[currentWorldPoint[0], currentWorldPoint[1] + railHeight, currentWorldPoint[2]]}
+                end={[
+                  currentWorldPoint[0],
+                  currentWorldPoint[1] + railHeight,
+                  currentWorldPoint[2],
+                ]}
                 material={material}
                 radius={railRadius}
-                start={[previousWorldPoint[0], previousWorldPoint[1] + railHeight, previousWorldPoint[2]]}
+                start={[
+                  previousWorldPoint[0],
+                  previousWorldPoint[1] + railHeight,
+                  previousWorldPoint[2],
+                ]}
               />
               <RailSegment
-                end={[currentWorldPoint[0], currentWorldPoint[1] + midRailHeight, currentWorldPoint[2]]}
+                end={[
+                  currentWorldPoint[0],
+                  currentWorldPoint[1] + midRailHeight,
+                  currentWorldPoint[2],
+                ]}
                 material={material}
                 radius={railRadius * 0.8}
-                start={[previousWorldPoint[0], previousWorldPoint[1] + midRailHeight, previousWorldPoint[2]]}
+                start={[
+                  previousWorldPoint[0],
+                  previousWorldPoint[1] + midRailHeight,
+                  previousWorldPoint[2],
+                ]}
               />
             </group>
           )
@@ -279,6 +382,8 @@ function StairRailings({ stair, material }: { stair: StairNode; material: THREE.
 
 const BALUSTER_GEOMETRY = new THREE.CylinderGeometry(1, 1, 1, 8)
 const RAIL_GEOMETRY = new THREE.CylinderGeometry(1, 1, 1, 8)
+const STAIR_TREAD_MATERIAL_INDEX = 0
+const STAIR_SIDE_MATERIAL_INDEX = 1
 
 function RailSegment({
   start,
@@ -296,16 +401,24 @@ function RailSegment({
   const direction = useMemo(() => endVector.clone().sub(startVector), [endVector, startVector])
   const length = Math.max(direction.length(), 0.01)
   const quaternion = useMemo(
-    () => new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize()),
+    () =>
+      new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        direction.clone().normalize(),
+      ),
     [direction],
   )
-  const midpoint = useMemo(() => startVector.clone().add(endVector).multiplyScalar(0.5), [endVector, startVector])
+  const midpoint = useMemo(
+    () => startVector.clone().add(endVector).multiplyScalar(0.5),
+    [endVector, startVector],
+  )
 
   return (
     <mesh
       castShadow
       geometry={RAIL_GEOMETRY}
       material={material}
+      name="stair-railing-rail"
       position={[midpoint.x, midpoint.y, midpoint.z]}
       quaternion={quaternion}
       receiveShadow
@@ -314,7 +427,14 @@ function RailSegment({
   )
 }
 
-function CurvedStairBody({ stair, material }: { stair: StairNode; material: THREE.Material }) {
+function CurvedStairBody({
+  stair,
+  bodyMaterials,
+}: {
+  stair: StairNode
+  bodyMaterials: StairBodyMaterials
+}) {
+  const sideMaterial = bodyMaterials[1]
   const stepCount = Math.max(2, Math.round(stair.stepCount ?? 10))
   const totalRise = Math.max(stair.totalRise ?? 2.5, 0.1)
   const stepHeight = totalRise / stepCount
@@ -327,11 +447,16 @@ function CurvedStairBody({ stair, material }: { stair: StairNode; material: THRE
   const fillToFloor = stair.fillToFloor ?? true
   const spiralColumnRadius = Math.max(0.05, Math.min(innerRadius * 0.72, innerRadius - 0.03))
   const spiralColumnHeight = totalRise + thickness
-  const spiralLandingDepth = Math.max(0.3, stair.topLandingDepth ?? Math.max((stair.width ?? 1) * 0.9, 0.8))
+  const spiralLandingDepth = Math.max(
+    0.3,
+    stair.topLandingDepth ?? Math.max((stair.width ?? 1) * 0.9, 0.8),
+  )
   const spiralLandingSweep =
     isSpiral && (stair.topLandingMode ?? 'none') === 'integrated'
-      ? Math.min(Math.PI * 0.75, spiralLandingDepth / Math.max(innerRadius + (stair.width ?? 1) / 2, 0.1)) *
-        Math.sign(sweepAngle || 1)
+      ? Math.min(
+          Math.PI * 0.75,
+          spiralLandingDepth / Math.max(innerRadius + (stair.width ?? 1) / 2, 0.1),
+        ) * Math.sign(sweepAngle || 1)
       : 0
   const spiralLastStepTop = stepHeight * Math.max(stepCount - 1, 0) + thickness
   const spiralLandingThickness =
@@ -342,28 +467,54 @@ function CurvedStairBody({ stair, material }: { stair: StairNode; material: THRE
   return (
     <group name={isSpiral ? 'spiral-stair' : 'curved-stair'}>
       {isSpiral && (stair.showCenterColumn ?? true) ? (
-        <mesh castShadow receiveShadow material={material} position={[0, spiralColumnHeight / 2, 0]}>
-          <cylinderGeometry args={[spiralColumnRadius, spiralColumnRadius, spiralColumnHeight, 10]} />
+        <mesh
+          castShadow
+          receiveShadow
+          material={sideMaterial}
+          name="stair-side"
+          position={[0, spiralColumnHeight / 2, 0]}
+        >
+          <cylinderGeometry
+            args={[spiralColumnRadius, spiralColumnRadius, spiralColumnHeight, 10]}
+          />
         </mesh>
       ) : null}
       {Array.from({ length: stepCount }).map((_, index) => {
         const currentHeight = stepHeight * (index + 1)
-        const actualStepHeight = isSpiral ? thickness : fillToFloor ? Math.max(currentHeight, thickness) : thickness
+        const actualStepHeight = isSpiral
+          ? thickness
+          : fillToFloor
+            ? Math.max(currentHeight, thickness)
+            : thickness
         const startAngle = -sweepAngle / 2 + stepSweep * index
         const endAngle = startAngle + stepSweep
-        const stepY = isSpiral ? stepHeight * index : fillToFloor ? 0 : Math.max(currentHeight - thickness, 0)
+        const stepY = isSpiral
+          ? stepHeight * index
+          : fillToFloor
+            ? 0
+            : Math.max(currentHeight - thickness, 0)
         const midAngle = startAngle + stepSweep / 2
 
         return (
-          <group key={`${stair.id}-${isSpiral ? 'spiral' : 'curved'}-step-${index}`} position-y={stepY}>
+          <group
+            key={`${stair.id}-${isSpiral ? 'spiral' : 'curved'}-step-${index}`}
+            position-y={stepY}
+          >
             {isSpiral && (stair.showStepSupports ?? true) ? (
               <mesh
                 castShadow
-                material={material}
+                material={sideMaterial}
+                name="stair-side"
                 position={[
-                  Math.cos(midAngle) * (spiralColumnRadius + Math.max(0.04, innerRadius - spiralColumnRadius + 0.04) / 2 - 0.02),
+                  Math.cos(midAngle) *
+                    (spiralColumnRadius +
+                      Math.max(0.04, innerRadius - spiralColumnRadius + 0.04) / 2 -
+                      0.02),
                   Math.max(thickness * 0.55, 0.025) / 2,
-                  Math.sin(midAngle) * (spiralColumnRadius + Math.max(0.04, innerRadius - spiralColumnRadius + 0.04) / 2 - 0.02),
+                  Math.sin(midAngle) *
+                    (spiralColumnRadius +
+                      Math.max(0.04, innerRadius - spiralColumnRadius + 0.04) / 2 -
+                      0.02),
                 ]}
                 receiveShadow
                 rotation-y={-midAngle}
@@ -380,7 +531,7 @@ function CurvedStairBody({ stair, material }: { stair: StairNode; material: THRE
             <CurvedStepMesh
               endAngle={endAngle}
               innerRadius={innerRadius}
-              material={material}
+              material={bodyMaterials}
               outerRadius={outerRadius}
               positionY={0}
               startAngle={startAngle}
@@ -394,7 +545,7 @@ function CurvedStairBody({ stair, material }: { stair: StairNode; material: THRE
         <CurvedStepMesh
           endAngle={sweepAngle / 2 + spiralLandingSweep}
           innerRadius={innerRadius}
-          material={material}
+          material={bodyMaterials}
           outerRadius={outerRadius}
           positionY={spiralLastStepTop}
           startAngle={sweepAngle / 2}
@@ -423,14 +574,23 @@ function CurvedStepMesh({
   stepHeight: number
   thickness: number
   positionY: number
-  material: THREE.Material
+  material: THREE.Material | THREE.Material[]
 }) {
   const geometry = useMemo(
-    () => buildCurvedStepGeometry(innerRadius, outerRadius, startAngle, endAngle, Math.max(stepHeight, thickness)),
+    () =>
+      buildCurvedStepGeometry(
+        innerRadius,
+        outerRadius,
+        startAngle,
+        endAngle,
+        Math.max(stepHeight, thickness),
+      ),
     [endAngle, innerRadius, outerRadius, startAngle, stepHeight, thickness],
   )
 
-  return <mesh castShadow geometry={geometry} material={material} position-y={positionY} receiveShadow />
+  return (
+    <mesh castShadow geometry={geometry} material={material} position-y={positionY} receiveShadow />
+  )
 }
 
 function buildCurvedStepGeometry(
@@ -445,15 +605,52 @@ function buildCurvedStepGeometry(
   const y1 = clampedHeight
   const sweepAngle = endAngle - startAngle
   const sweepDirection = Math.sign(sweepAngle) || 1
-  const segmentCount = Math.max(4, Math.min(24, Math.ceil(Math.abs(sweepAngle) / (Math.PI / 18) + Math.max(0, (outerRadius - innerRadius) * 3))))
+  const segmentCount = Math.max(
+    4,
+    Math.min(
+      24,
+      Math.ceil(
+        Math.abs(sweepAngle) / (Math.PI / 18) + Math.max(0, (outerRadius - innerRadius) * 3),
+      ),
+    ),
+  )
 
   const positions: number[] = []
   const normals: number[] = []
+  const uvs: number[] = []
+  const triangleMaterialIndices: number[] = []
 
   const pointOnArc = (radius: number, angle: number, y: number) =>
     new THREE.Vector3(Math.cos(angle) * radius, y, Math.sin(angle) * radius)
 
-  const pushTriangle = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, normal: THREE.Vector3) => {
+  const pushUv = (point: THREE.Vector3, normal: THREE.Vector3, materialIndex: number) => {
+    if (materialIndex === STAIR_TREAD_MATERIAL_INDEX) {
+      const angle = Math.atan2(point.z, point.x)
+      const arcOffset = (angle - startAngle) * Math.max((innerRadius + outerRadius) * 0.5, 0.01)
+      uvs.push(arcOffset, Math.sqrt(point.x * point.x + point.z * point.z) - innerRadius)
+      return
+    }
+
+    const absX = Math.abs(normal.x)
+    const absY = Math.abs(normal.y)
+    const absZ = Math.abs(normal.z)
+
+    if (absY >= absX && absY >= absZ) {
+      uvs.push(point.x, point.z)
+    } else if (absX >= absZ) {
+      uvs.push(point.z, point.y)
+    } else {
+      uvs.push(point.x, point.y)
+    }
+  }
+
+  const pushTriangle = (
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    c: THREE.Vector3,
+    normal: THREE.Vector3,
+    materialIndex: number,
+  ) => {
     const edgeAB = b.clone().sub(a)
     const edgeAC = c.clone().sub(a)
     const faceNormal = edgeAB.cross(edgeAC)
@@ -461,12 +658,21 @@ function buildCurvedStepGeometry(
     for (const point of ordered) {
       positions.push(point.x, point.y, point.z)
       normals.push(normal.x, normal.y, normal.z)
+      pushUv(point, normal, materialIndex)
     }
+    triangleMaterialIndices.push(materialIndex)
   }
 
-  const pushQuad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, normal: THREE.Vector3) => {
-    pushTriangle(a, b, c, normal)
-    pushTriangle(a, c, d, normal)
+  const pushQuad = (
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    c: THREE.Vector3,
+    d: THREE.Vector3,
+    normal: THREE.Vector3,
+    materialIndex: number,
+  ) => {
+    pushTriangle(a, b, c, normal, materialIndex)
+    pushTriangle(a, c, d, normal, materialIndex)
   }
 
   const upNormal = new THREE.Vector3(0, 1, 0)
@@ -491,10 +697,38 @@ function buildCurvedStepGeometry(
     const outerNormal = new THREE.Vector3(Math.cos(midAngle), 0, Math.sin(midAngle)).normalize()
     const innerNormal = new THREE.Vector3(-Math.cos(midAngle), 0, -Math.sin(midAngle)).normalize()
 
-    pushQuad(innerStartTop, outerStartTop, outerEndTop, innerEndTop, upNormal)
-    pushQuad(innerStartBottom, innerEndBottom, outerEndBottom, outerStartBottom, downNormal)
-    pushQuad(innerStartBottom, innerStartTop, innerEndTop, innerEndBottom, innerNormal)
-    pushQuad(outerStartBottom, outerEndBottom, outerEndTop, outerStartTop, outerNormal)
+    pushQuad(
+      innerStartTop,
+      outerStartTop,
+      outerEndTop,
+      innerEndTop,
+      upNormal,
+      STAIR_TREAD_MATERIAL_INDEX,
+    )
+    pushQuad(
+      innerStartBottom,
+      innerEndBottom,
+      outerEndBottom,
+      outerStartBottom,
+      downNormal,
+      STAIR_SIDE_MATERIAL_INDEX,
+    )
+    pushQuad(
+      innerStartBottom,
+      innerStartTop,
+      innerEndTop,
+      innerEndBottom,
+      innerNormal,
+      STAIR_SIDE_MATERIAL_INDEX,
+    )
+    pushQuad(
+      outerStartBottom,
+      outerEndBottom,
+      outerEndTop,
+      outerStartTop,
+      outerNormal,
+      STAIR_SIDE_MATERIAL_INDEX,
+    )
   }
 
   const startInnerBottom = pointOnArc(innerRadius, startAngle, y0)
@@ -516,12 +750,49 @@ function buildCurvedStepGeometry(
     sweepDirection * Math.cos(endAngle),
   ).normalize()
 
-  pushQuad(startInnerBottom, startOuterBottom, startOuterTop, startInnerTop, startNormal)
-  pushQuad(endInnerBottom, endInnerTop, endOuterTop, endOuterBottom, endNormal)
+  pushQuad(
+    startInnerBottom,
+    startOuterBottom,
+    startOuterTop,
+    startInnerTop,
+    startNormal,
+    STAIR_SIDE_MATERIAL_INDEX,
+  )
+  pushQuad(
+    endInnerBottom,
+    endInnerTop,
+    endOuterTop,
+    endOuterBottom,
+    endNormal,
+    STAIR_SIDE_MATERIAL_INDEX,
+  )
 
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.clearGroups()
+
+  let currentMaterial = triangleMaterialIndices[0]
+  let groupStart = 0
+
+  for (let triangleIndex = 1; triangleIndex < triangleMaterialIndices.length; triangleIndex++) {
+    const materialIndex = triangleMaterialIndices[triangleIndex]
+    if (materialIndex === currentMaterial) continue
+
+    geometry.addGroup(groupStart * 3, (triangleIndex - groupStart) * 3, currentMaterial)
+    groupStart = triangleIndex
+    currentMaterial = materialIndex
+  }
+
+  if (triangleMaterialIndices.length > 0) {
+    geometry.addGroup(
+      groupStart * 3,
+      (triangleMaterialIndices.length - groupStart) * 3,
+      currentMaterial ?? STAIR_SIDE_MATERIAL_INDEX,
+    )
+  }
+  geometry.setAttribute('uv2', new THREE.Float32BufferAttribute(uvs.slice(), 2))
   geometry.computeVertexNormals()
   return geometry
 }
@@ -548,7 +819,10 @@ function buildStairRailPaths(
     return layouts.map((layout, index) => {
       const previousLayout = index > 0 ? layouts[index - 1] : undefined
       const nextLayout = layouts[index + 1]
-      const { nextStairLayout, isTerminalLandingBeforeStair } = resolveLandingChainNextStair(layouts, index)
+      const { nextStairLayout, isTerminalLandingBeforeStair } = resolveLandingChainNextStair(
+        layouts,
+        index,
+      )
       const hideLandingRailing =
         layout.segment.segmentType === 'landing' &&
         previousLayout?.segment.segmentType === 'stair' &&
@@ -565,32 +839,39 @@ function buildStairRailPaths(
               ? (['front', 'left'] as const)
               : (['left', 'right'] as const)
           : hideLandingRailing
-          ? visualTurnSide === 'left'
-            ? (['front', 'right'] as const)
-            : visualTurnSide === 'right'
-              ? (['front', 'left'] as const)
-              : (['left', 'right'] as const)
-          : layout.segment.segmentType === 'landing'
-            ? nextLayout?.segment.segmentType === 'landing' && visualTurnSide === 'left'
+            ? visualTurnSide === 'left'
               ? (['front', 'right'] as const)
-              : nextLayout?.segment.segmentType === 'landing' && visualTurnSide === 'right'
+              : visualTurnSide === 'right'
                 ? (['front', 'left'] as const)
-                : visualTurnSide === 'left'
-                  ? (['right'] as const)
-                  : visualTurnSide === 'right'
-                    ? (['left'] as const)
-                    : (['left', 'right'] as const)
-            : (['left', 'right'] as const)
+                : (['left', 'right'] as const)
+            : layout.segment.segmentType === 'landing'
+              ? nextLayout?.segment.segmentType === 'landing' && visualTurnSide === 'left'
+                ? (['front', 'right'] as const)
+                : nextLayout?.segment.segmentType === 'landing' && visualTurnSide === 'right'
+                  ? (['front', 'left'] as const)
+                  : visualTurnSide === 'left'
+                    ? (['right'] as const)
+                    : visualTurnSide === 'right'
+                      ? (['left'] as const)
+                      : (['left', 'right'] as const)
+              : (['left', 'right'] as const)
 
       return {
         layout,
         sidePaths:
           isStraightLineDoubleLandingLayout && index === 1
-            ? (['left', 'right'] as const).map((side) => buildSegmentRailPath(layouts, index, side, landingInset))
-            : sideCandidates.map((side) => buildSegmentRailPath(layouts, index, side, landingInset)),
+            ? (['left', 'right'] as const).map((side) =>
+                buildSegmentRailPath(layouts, index, side, landingInset),
+              )
+            : sideCandidates.map((side) =>
+                buildSegmentRailPath(layouts, index, side, landingInset),
+              ),
         connectFromPrevious:
           index > 0 &&
-          !(previousLayout?.segment.segmentType === 'landing' && layout.segment.segmentType === 'landing'),
+          !(
+            previousLayout?.segment.segmentType === 'landing' &&
+            layout.segment.segmentType === 'landing'
+          ),
       }
     })
   }
@@ -607,7 +888,10 @@ function buildStairRailPaths(
   return layouts.map((layout, index) => {
     const previousLayout = index > 0 ? layouts[index - 1] : undefined
     const nextLayout = layouts[index + 1]
-    const { nextStairLayout, isTerminalLandingBeforeStair } = resolveLandingChainNextStair(layouts, index)
+    const { nextStairLayout, isTerminalLandingBeforeStair } = resolveLandingChainNextStair(
+      layouts,
+      index,
+    )
     const isMiddleLandingBetweenFlights =
       layout.segment.segmentType === 'landing' &&
       previousLayout?.segment.segmentType === 'stair' &&
@@ -626,28 +910,29 @@ function buildStairRailPaths(
       suppressMiddleLandingOnPreferredTurnSide
     const landingContinuesOnPreferredSide =
       layout.segment.segmentType === 'landing'
-        ? nextAttachmentSide == null || nextAttachmentSide === 'front' || nextAttachmentSide === railingMode
+        ? nextAttachmentSide == null ||
+          nextAttachmentSide === 'front' ||
+          nextAttachmentSide === railingMode
         : true
 
-    const sideCandidates =
-      suppressLandingRailing
-        ? ([] as StairRailPathSide[])
-          : layout.segment.segmentType !== 'landing'
-          ? [railingMode]
-          : isTerminalLandingBeforeStair
-            ? railingMode === 'left'
-              ? terminalNextAttachmentSide === 'right'
-                ? (['front', 'left'] as const)
+    const sideCandidates = suppressLandingRailing
+      ? ([] as StairRailPathSide[])
+      : layout.segment.segmentType !== 'landing'
+        ? [railingMode]
+        : isTerminalLandingBeforeStair
+          ? railingMode === 'left'
+            ? terminalNextAttachmentSide === 'right'
+              ? (['front', 'left'] as const)
+              : terminalNextAttachmentSide === 'front' || terminalNextAttachmentSide == null
+                ? (['left'] as const)
+                : ([] as StairRailPathSide[])
+            : railingMode === 'right'
+              ? terminalNextAttachmentSide === 'left'
+                ? (['front', 'right'] as const)
                 : terminalNextAttachmentSide === 'front' || terminalNextAttachmentSide == null
-                  ? (['left'] as const)
+                  ? (['right'] as const)
                   : ([] as StairRailPathSide[])
-              : railingMode === 'right'
-                ? terminalNextAttachmentSide === 'left'
-                  ? (['front', 'right'] as const)
-                  : terminalNextAttachmentSide === 'front' || terminalNextAttachmentSide == null
-                    ? (['right'] as const)
-                    : ([] as StairRailPathSide[])
-                : [railingMode]
+              : [railingMode]
           : isStraightLineDoubleLandingLayout
             ? [railingMode]
             : isMiddleLandingBetweenFlights && railingMode === 'left'
@@ -667,7 +952,9 @@ function buildStairRailPaths(
 
     return {
       layout,
-      sidePaths: sideCandidates.map((side) => buildSegmentRailPath(layouts, index, side, landingInset)),
+      sidePaths: sideCandidates.map((side) =>
+        buildSegmentRailPath(layouts, index, side, landingInset),
+      ),
       connectFromPrevious:
         index > 0 &&
         !suppressLandingRailing &&
@@ -677,7 +964,10 @@ function buildStairRailPaths(
   })
 }
 
-function resolveLandingChainNextStair(layouts: StairRailLayout[], index: number): LandingChainNextStair {
+function resolveLandingChainNextStair(
+  layouts: StairRailLayout[],
+  index: number,
+): LandingChainNextStair {
   const layout = layouts[index]
   if (!layout || layout.segment.segmentType !== 'landing') {
     return { isTerminalLandingBeforeStair: false }
@@ -728,9 +1018,13 @@ function buildSegmentRailPath(
   const stepHeight = segment.segmentType === 'landing' ? 0 : segment.height / steps
   const flightSideOffset = side === 'left' ? segment.width / 2 - 0.045 : -segment.width / 2 + 0.045
   const flightStartX =
-    previousLayout?.segment.segmentType === 'landing' ? -segment.length / 2 + landingInset : -segment.length / 2
+    previousLayout?.segment.segmentType === 'landing'
+      ? -segment.length / 2 + landingInset
+      : -segment.length / 2
   const flightEndX =
-    nextLayout?.segment.segmentType === 'landing' ? segment.length / 2 - landingInset : segment.length / 2
+    nextLayout?.segment.segmentType === 'landing'
+      ? segment.length / 2 - landingInset
+      : segment.length / 2
   const landingFrontX =
     previousLayout?.segment.segmentType === 'stair' &&
     segment.attachmentSide &&
@@ -767,7 +1061,13 @@ function buildSegmentRailPath(
   return {
     side,
     points: [
-      ...(previousLayout?.segment.segmentType === 'landing' ? [] : ([[flightStartX, stepHeight > 0 ? stepHeight : 0, flightSideOffset]] as [number, number, number][])),
+      ...(previousLayout?.segment.segmentType === 'landing'
+        ? []
+        : ([[flightStartX, stepHeight > 0 ? stepHeight : 0, flightSideOffset]] as [
+            number,
+            number,
+            number,
+          ][])),
       ...Array.from({ length: steps }).map(
         (_, index) =>
           [
@@ -783,7 +1083,10 @@ function buildSegmentRailPath(
   }
 }
 
-function toWorldRailPoint(layout: StairRailLayout, point: [number, number, number]): [number, number, number] {
+function toWorldRailPoint(
+  layout: StairRailLayout,
+  point: [number, number, number],
+): [number, number, number] {
   const [localX, localY, localZ] = point
   const [offsetX, offsetZ] = rotateXZ(localZ, localX, layout.rotation)
   return [layout.center[0] + offsetX, layout.elevation + localY, layout.center[1] + offsetZ]
@@ -798,7 +1101,10 @@ function computeSegmentTransforms(segments: StairSegmentNode[]): SegmentTransfor
     const segment = segments[i]!
 
     if (i === 0) {
-      transforms.push({ position: [currentPos.x, currentPos.y, currentPos.z], rotation: currentRot })
+      transforms.push({
+        position: [currentPos.x, currentPos.y, currentPos.z],
+        rotation: currentRot,
+      })
       continue
     }
 

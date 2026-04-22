@@ -5,18 +5,13 @@ import type { PresetData, PresetType } from '../components/ui/panels/presets/pre
 
 export type { PresetData, PresetType }
 
-/**
- * Descriptor for a tab rendered inside the Presets panel.
- * Host applications can register additional preset tabs alongside the built-in door/window tabs.
- */
-export interface PresetsTab {
-  id: string
-  label: string
-  type: PresetType
-}
+export type PresetsTab = 'community' | 'mine'
 
 export interface PresetsAdapter {
-  fetchPresets: (type: PresetType) => Promise<PresetData[]>
+  /** Tabs to show. Default: both. Standalone passes ['mine']. */
+  tabs?: PresetsTab[]
+  isAuthenticated?: boolean
+  fetchPresets: (type: PresetType, tab: PresetsTab) => Promise<PresetData[]>
   savePreset: (
     type: PresetType,
     name: string,
@@ -25,13 +20,18 @@ export interface PresetsAdapter {
   overwritePreset: (type: PresetType, id: string, data: Record<string, unknown>) => Promise<void>
   renamePreset: (id: string, name: string) => Promise<void>
   deletePreset: (id: string) => Promise<void>
+  togglePresetCommunity?: (id: string, current: boolean) => Promise<void>
   uploadPresetThumbnail?: (presetId: string, blob: Blob) => Promise<string | null>
 }
 
-const PRESETS_KEY = (type: string) => `aedifex-presets-${type}`
+const PRESETS_KEY = (type: string) => `pascal-presets-${type}`
 
 export const localStoragePresetsAdapter: PresetsAdapter = {
-  fetchPresets: async (type) => {
+  tabs: ['mine'],
+  isAuthenticated: true,
+
+  fetchPresets: async (type, tab) => {
+    if (tab === 'community') return []
     try {
       const raw = localStorage.getItem(PRESETS_KEY(type))
       return raw ? (JSON.parse(raw) as PresetData[]) : []
@@ -51,6 +51,8 @@ export const localStoragePresetsAdapter: PresetsAdapter = {
         name,
         data,
         thumbnail_url: null,
+        user_id: null,
+        is_community: false,
         created_at: new Date().toISOString(),
       })
       localStorage.setItem(PRESETS_KEY(type), JSON.stringify(presets))

@@ -2,12 +2,6 @@ export { default as Viewer } from './components/viewer'
 export { SSGI_PARAMS } from './components/viewer/post-processing'
 export { WalkthroughControls } from './components/viewer/walkthrough-controls'
 export { ASSETS_CDN_URL, resolveAssetUrl, resolveCdnUrl } from './lib/asset-url'
-export {
-  captureScreenshot,
-  clearScreenshotRenderer,
-  setScreenshotRenderer,
-  type CaptureScreenshotOptions,
-} from './lib/capture-screenshot'
 export { SCENE_LAYER, ZONE_LAYER } from './lib/layers'
 export {
   clearMaterialCache,

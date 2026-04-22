@@ -27,7 +27,7 @@ const EMPTY_PERSISTED_SELECTION: PersistedSelectionPath = {
   selectedIds: [],
 }
 
-const SELECTION_STORAGE_KEY = 'aedifex-editor-selection'
+const SELECTION_STORAGE_KEY = 'pascal-editor-selection'
 
 function getSelectionStorageKey(): string {
   const projectId = useViewer.getState().projectId
@@ -283,7 +283,8 @@ export function syncEditorSelectionFromCurrentScene() {
 
     if (shouldRestoreEditorUiState) {
       if (restoredSelection) {
-        useViewer.getState().setSelection(restoredSelection as any)
+        // biome-ignore lint/suspicious/noExplicitAny: persisted ids are validated at runtime
+      useViewer.getState().setSelection(restoredSelection as any)
         useEditor.setState(
           restoredEditorUiState.phase === 'site'
             ? (selectionDrivenEditorUiState ?? restoredEditorUiState)
@@ -305,6 +306,7 @@ export function syncEditorSelectionFromCurrentScene() {
     }
 
     if (restoredSelection) {
+      // biome-ignore lint/suspicious/noExplicitAny: persisted ids are validated at runtime
       useViewer.getState().setSelection(restoredSelection as any)
       if (selectionDrivenEditorUiState) {
         useEditor.setState(selectionDrivenEditorUiState)
@@ -374,7 +376,7 @@ export function applySceneGraphToEditor(sceneGraph?: SceneGraph | null) {
   syncEditorSelectionFromCurrentScene()
 }
 
-const LOCAL_STORAGE_KEY = 'aedifex-editor-scene'
+const LOCAL_STORAGE_KEY = 'pascal-editor-scene'
 
 export function saveSceneToLocalStorage(scene: SceneGraph): void {
   try {

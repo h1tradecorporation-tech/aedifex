@@ -5,23 +5,23 @@ import {
   type AnyNode,
   type AnyNodeId,
   type BuildingNode,
-  calculateLevelMiters,
   type CeilingNode,
+  calculateLevelMiters,
   DoorNode,
   emitter,
   type GridEvent,
   type GuideNode,
-  getWallChordFrame,
-  isCurvedWall,
-  getWallMidpointHandlePoint,
-  normalizeWallCurveOffset,
   getScaledDimensions,
+  getWallChordFrame,
   getWallCurveLength,
+  getWallMidpointHandlePoint,
   getWallPlanFootprint,
   type ItemNode,
   ItemNode as ItemNodeSchema,
+  isCurvedWall,
   type LevelNode,
   loadAssetUrl,
+  normalizeWallCurveOffset,
   type Point2D,
   type SiteNode,
   SlabNode,
@@ -52,7 +52,7 @@ import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { sfxEmitter } from '../../lib/sfx-bus'
 import { cn } from '../../lib/utils'
-import useEditor from '../../store/use-editor'
+import useEditor, { type FloorplanSelectionTool } from '../../store/use-editor'
 import { snapToHalf } from '../tools/item/placement-math'
 import {
   DEFAULT_STAIR_ATTACHMENT_SIDE,
@@ -94,7 +94,7 @@ const MAJOR_GRID_STEP = WALL_GRID_STEP * 2
 const FLOORPLAN_WALL_THICKNESS_SCALE = 1.18
 const FLOORPLAN_MIN_VISIBLE_WALL_THICKNESS = 0.13
 const FLOORPLAN_MAX_EXTRA_THICKNESS = 0.035
-const FLOORPLAN_PANEL_LAYOUT_STORAGE_KEY = 'aedifex-editor-floorplan-panel-layout'
+const FLOORPLAN_PANEL_LAYOUT_STORAGE_KEY = 'pascal-editor-floorplan-panel-layout'
 const EMPTY_WALL_MITER_DATA = calculateLevelMiters([])
 const EDITOR_CURSOR = "url('/cursor.svg') 4 2, default"
 const FLOORPLAN_CURSOR_INDICATOR_LINE_HEIGHT = 18
@@ -157,6 +157,12 @@ type FloorplanViewport = {
   centerX: number
   centerY: number
   width: number
+}
+
+function floorplanViewportEquals(a: FloorplanViewport | null, b: FloorplanViewport | null) {
+  if (a === b) return true
+  if (!(a && b)) return false
+  return a.centerX === b.centerX && a.centerY === b.centerY && a.width === b.width
 }
 
 type SvgPoint = {
@@ -4655,6 +4661,290 @@ const FloorplanPolygonHandleLayer = memo(function FloorplanPolygonHandleLayer({
   )
 })
 
+type FloorplanSiteKeyHandlerProps = {
+  onRestoreGroundLevel: () => void
+}
+
+const FloorplanSiteKeyHandler = memo(function FloorplanSiteKeyHandler({
+  onRestoreGroundLevel,
+}: FloorplanSiteKeyHandlerProps) {
+  const isFloorplanHovered = useEditor((state) => state.isFloorplanHovered)
+  const phase = useEditor((state) => state.phase)
+  const setFloorplanSelectionTool = useEditor((state) => state.setFloorplanSelectionTool)
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        Boolean(target?.isContentEditable)
+
+      if (
+        isEditableTarget ||
+        !isFloorplanHovered ||
+        phase !== 'site' ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'v'
+      ) {
+        return
+      }
+
+      setFloorplanSelectionTool('click')
+      onRestoreGroundLevel()
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [isFloorplanHovered, onRestoreGroundLevel, phase, setFloorplanSelectionTool])
+
+  return null
+})
+
+type FloorplanDuplicateHotkeyProps = {
+  hasDuplicatable: boolean
+  onDuplicateSelected: () => void
+}
+
+const FloorplanDuplicateHotkey = memo(function FloorplanDuplicateHotkey({
+  hasDuplicatable,
+  onDuplicateSelected,
+}: FloorplanDuplicateHotkeyProps) {
+  const isFloorplanHovered = useEditor((state) => state.isFloorplanHovered)
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'c') {
+        return
+      }
+
+      if (!(isFloorplanHovered && hasDuplicatable)) {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        Boolean(target?.isContentEditable)
+
+      if (isEditableTarget) {
+        return
+      }
+
+      event.preventDefault()
+      onDuplicateSelected()
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [hasDuplicatable, isFloorplanHovered, onDuplicateSelected])
+
+  return null
+})
+
+type FloorplanActionMenuHandler = (event: ReactMouseEvent<HTMLButtonElement>) => void
+
+type FloorplanActionMenuEntry = {
+  position: SvgPoint | null
+  onDelete: FloorplanActionMenuHandler
+  onMove: FloorplanActionMenuHandler
+  onDuplicate?: FloorplanActionMenuHandler
+}
+
+type FloorplanActionMenuLayerProps = {
+  item: FloorplanActionMenuEntry
+  wall: FloorplanActionMenuEntry
+  slab: FloorplanActionMenuEntry
+  ceiling: FloorplanActionMenuEntry
+  opening: FloorplanActionMenuEntry
+  stair: FloorplanActionMenuEntry
+}
+
+const FloorplanActionMenuLayer = memo(function FloorplanActionMenuLayer({
+  item,
+  wall,
+  slab,
+  ceiling,
+  opening,
+  stair,
+}: FloorplanActionMenuLayerProps) {
+  const isFloorplanHovered = useEditor((state) => state.isFloorplanHovered)
+  const movingNode = useEditor((state) => state.movingNode)
+  const curvingWall = useEditor((state) => state.curvingWall)
+  const curvingFence = useEditor((state) => state.curvingFence)
+
+  if (!isFloorplanHovered || movingNode || curvingWall || curvingFence) {
+    return null
+  }
+
+  const entries: FloorplanActionMenuEntry[] = [item, wall, slab, ceiling, opening, stair]
+
+  return (
+    <>
+      {entries.map((entry, index) =>
+        entry.position ? (
+          <div
+            className="absolute z-30"
+            key={index}
+            style={{
+              left: entry.position.x,
+              top: entry.position.y,
+              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
+            }}
+          >
+            <NodeActionMenu
+              onDelete={entry.onDelete}
+              onDuplicate={entry.onDuplicate}
+              onMove={entry.onMove}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+            />
+          </div>
+        ) : null,
+      )}
+    </>
+  )
+})
+
+type FloorplanCursorIndicatorOverlayProps = {
+  cursorPosition: SvgPoint | null
+  cursorAnchorPosition: SvgPoint | null
+  floorplanSelectionTool: FloorplanSelectionTool
+  movingOpeningType: 'door' | 'window' | null
+  isPanning: boolean
+  cursorColor: string
+}
+
+const FloorplanCursorIndicatorOverlay = memo(function FloorplanCursorIndicatorOverlay({
+  cursorPosition,
+  cursorAnchorPosition,
+  floorplanSelectionTool,
+  movingOpeningType,
+  isPanning,
+  cursorColor,
+}: FloorplanCursorIndicatorOverlayProps) {
+  const mode = useEditor((state) => state.mode)
+  const tool = useEditor((state) => state.tool)
+  const structureLayer = useEditor((state) => state.structureLayer)
+  const catalogCategory = useEditor((state) => state.catalogCategory)
+
+  const activeFloorplanToolConfig = useMemo(() => {
+    if (movingOpeningType) {
+      return structureTools.find((entry) => entry.id === movingOpeningType) ?? null
+    }
+
+    if (mode !== 'build' || !tool) {
+      return null
+    }
+
+    if (tool === 'item' && catalogCategory) {
+      return furnishTools.find((entry) => entry.catalogCategory === catalogCategory) ?? null
+    }
+
+    return structureTools.find((entry) => entry.id === tool) ?? null
+  }, [catalogCategory, mode, movingOpeningType, tool])
+
+  const indicator = useMemo<FloorplanCursorIndicator | null>(() => {
+    if (activeFloorplanToolConfig) {
+      return { kind: 'asset', iconSrc: activeFloorplanToolConfig.iconSrc }
+    }
+
+    if (mode === 'select' && floorplanSelectionTool === 'marquee' && structureLayer !== 'zones') {
+      return { kind: 'icon', icon: 'mdi:select-drag' }
+    }
+
+    if (mode === 'delete') {
+      return { kind: 'icon', icon: 'mdi:trash-can-outline' }
+    }
+
+    return null
+  }, [activeFloorplanToolConfig, floorplanSelectionTool, mode, structureLayer])
+
+  const position = mode === 'delete' ? cursorPosition : cursorAnchorPosition
+
+  if (!(indicator && position) || isPanning) {
+    return null
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute z-20"
+      style={{ left: position.x, top: position.y }}
+    >
+      {mode === 'delete' ? (
+        <div
+          className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/5 bg-zinc-900/95 shadow-[0_8px_16px_-4px_rgba(0,0,0,0.3),0_4px_8px_-4px_rgba(0,0,0,0.2)]"
+          style={{
+            boxShadow: `0 8px 16px -4px rgba(0,0,0,0.3), 0 4px 8px -4px rgba(0,0,0,0.2), 0 0 18px ${cursorColor}22`,
+            transform: `translate(${FLOORPLAN_CURSOR_BADGE_OFFSET_X}px, ${FLOORPLAN_CURSOR_BADGE_OFFSET_Y}px)`,
+          }}
+        >
+          {indicator.kind === 'asset' ? (
+            <img
+              alt=""
+              aria-hidden="true"
+              className="h-5 w-5 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+              src={indicator.iconSrc}
+            />
+          ) : (
+            <Icon
+              aria-hidden="true"
+              className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+              color={cursorColor}
+              height={18}
+              icon={indicator.icon}
+              width={18}
+            />
+          )}
+        </div>
+      ) : (
+        <>
+          <div
+            className="absolute top-0 left-1/2 w-px -translate-x-1/2 -translate-y-full"
+            style={{
+              backgroundColor: cursorColor,
+              boxShadow: `0 0 12px ${cursorColor}55`,
+              height: FLOORPLAN_CURSOR_INDICATOR_LINE_HEIGHT,
+            }}
+          />
+          <div
+            className="absolute top-0 left-1/2 flex h-8 w-8 items-center justify-center rounded-xl border border-white/5 bg-zinc-900/95 shadow-[0_8px_16px_-4px_rgba(0,0,0,0.3),0_4px_8px_-4px_rgba(0,0,0,0.2)]"
+            style={{
+              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_CURSOR_INDICATOR_LINE_HEIGHT}px))`,
+            }}
+          >
+            {indicator.kind === 'asset' ? (
+              <img
+                alt=""
+                aria-hidden="true"
+                className="h-5 w-5 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+                src={indicator.iconSrc}
+              />
+            ) : (
+              <Icon
+                aria-hidden="true"
+                className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+                color="white"
+                height={18}
+                icon={indicator.icon}
+                width={18}
+              />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+})
+
 export function FloorplanPanel() {
   const viewportHostRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -4685,17 +4975,15 @@ export function FloorplanPanel() {
   const showGrid = useViewer((state) => state.showGrid)
   const showGuides = useViewer((state) => state.showGuides)
   const setShowGuides = useViewer((state) => state.setShowGuides)
-  const catalogCategory = useEditor((state) => state.catalogCategory)
-  const setCatalogCategory = useEditor((state) => state.setCatalogCategory)
   const selectedItem = useEditor((state) => state.selectedItem)
 
-  const isFloorplanHovered = useEditor((state) => state.isFloorplanHovered)
   const setFloorplanHovered = useEditor((state) => state.setFloorplanHovered)
   const selectedReferenceId = useEditor((state) => state.selectedReferenceId)
   const setSelectedReferenceId = useEditor((state) => state.setSelectedReferenceId)
   const setMode = useEditor((state) => state.setMode)
   const movingNode = useEditor((state) => state.movingNode)
   const curvingWall = useEditor((state) => state.curvingWall)
+  const curvingFence = useEditor((state) => state.curvingFence)
   const phase = useEditor((state) => state.phase)
   const mode = useEditor((state) => state.mode)
   const setPhase = useEditor((state) => state.setPhase)
@@ -4962,45 +5250,6 @@ export function FloorplanPanel() {
   const movingOpeningType =
     movingNode?.type === 'door' || movingNode?.type === 'window' ? movingNode.type : null
 
-  const activeFloorplanToolConfig = useMemo(() => {
-    if (movingOpeningType) {
-      return structureTools.find((entry) => entry.id === movingOpeningType) ?? null
-    }
-
-    if (mode !== 'build' || !tool) {
-      return null
-    }
-
-    if (tool === 'item' && catalogCategory) {
-      return furnishTools.find((entry) => entry.catalogCategory === catalogCategory) ?? null
-    }
-
-    return structureTools.find((entry) => entry.id === tool) ?? null
-  }, [catalogCategory, mode, movingOpeningType, tool])
-  const activeFloorplanCursorIndicator = useMemo<FloorplanCursorIndicator | null>(() => {
-    if (activeFloorplanToolConfig) {
-      return {
-        kind: 'asset',
-        iconSrc: activeFloorplanToolConfig.iconSrc,
-      }
-    }
-
-    if (mode === 'select' && floorplanSelectionTool === 'marquee' && structureLayer !== 'zones') {
-      return {
-        kind: 'icon',
-        icon: 'mdi:select-drag',
-      }
-    }
-
-    if (mode === 'delete') {
-      return {
-        kind: 'icon',
-        icon: 'mdi:trash-can-outline',
-      }
-    }
-
-    return null
-  }, [activeFloorplanToolConfig, floorplanSelectionTool, mode, structureLayer])
   const visibleGuides = useMemo<GuideNode[]>(() => {
     if (!showGuides) {
       return []
@@ -5060,7 +5309,7 @@ export function FloorplanPanel() {
     [floorplanWalls],
   )
   const displayWallById = useMemo(() => {
-    if (!wallEndpointDraft && !wallCurveDraft) {
+    if (!(wallEndpointDraft || wallCurveDraft)) {
       return wallById
     }
 
@@ -5086,7 +5335,7 @@ export function FloorplanPanel() {
     return nextWallById
   }, [wallById, wallCurveDraft, wallEndpointDraft])
   const displayFloorplanWallById = useMemo(() => {
-    if (!wallEndpointDraft && !wallCurveDraft) {
+    if (!(wallEndpointDraft || wallCurveDraft)) {
       return floorplanWallById
     }
 
@@ -5118,7 +5367,7 @@ export function FloorplanPanel() {
     [floorplanWallById, wallMiterData, walls],
   )
   const displayWallPolygons = useMemo(() => {
-    if (!wallEndpointDraft && !wallCurveDraft) {
+    if (!(wallEndpointDraft || wallCurveDraft)) {
       return wallPolygons
     }
 
@@ -5409,6 +5658,7 @@ export function FloorplanPanel() {
   const isCeilingMoveActive = movingNode?.type === 'ceiling'
   const isWallMoveActive = movingNode?.type === 'wall'
   const isWallCurveActive = curvingWall?.type === 'wall'
+  const isFenceCurveActive = curvingFence?.type === 'fence'
   const isItemPlacementPreviewActive =
     (mode === 'build' && tool === 'item') || movingNode?.type === 'item'
   const isFloorItemBuildActive = mode === 'build' && tool === 'item' && !selectedItem?.attachTo
@@ -5420,6 +5670,7 @@ export function FloorplanPanel() {
     isCeilingMoveActive ||
     isWallMoveActive ||
     isWallCurveActive ||
+    isFenceCurveActive ||
     isFloorItemBuildActive ||
     isFloorItemMoveActive
   const floorplanPreviewStairSegment = useMemo(
@@ -5914,22 +6165,14 @@ export function FloorplanPanel() {
     if (levelChanged) {
       previousLevelIdRef.current = levelId ?? null
       hasUserAdjustedViewportRef.current = false
-      setViewport(fittedViewport)
+      setViewport((current) => (floorplanViewportEquals(current, fittedViewport) ? current : fittedViewport))
       return
     }
 
     if (!hasUserAdjustedViewportRef.current) {
-      setViewport(fittedViewport)
+      setViewport((current) => (floorplanViewportEquals(current, fittedViewport) ? current : fittedViewport))
     }
   }, [fittedViewport, levelId])
-
-  useEffect(() => {
-    if (!(phase === 'site' && levelNode?.type === 'level')) {
-      return
-    }
-
-    setPhase('structure')
-  }, [levelNode, phase, setPhase])
 
   const viewBox = useMemo(() => {
     const currentViewport = viewport ?? fittedViewport
@@ -6774,11 +7017,10 @@ export function FloorplanPanel() {
       const snappedPoint: WallPlanPoint = shiftPressed
         ? planPoint
         : [snapToHalf(planPoint[0]), snapToHalf(planPoint[1])]
-      const rawCurveOffset =
-        -(
-          (snappedPoint[0] - chord.midpoint.x) * chord.normal.x +
-          (snappedPoint[1] - chord.midpoint.y) * chord.normal.y
-        )
+      const rawCurveOffset = -(
+        (snappedPoint[0] - chord.midpoint.x) * chord.normal.x +
+        (snappedPoint[1] - chord.midpoint.y) * chord.normal.y
+      )
       const nextCurveOffset = normalizeWallCurveOffset(
         wall,
         shiftPressed ? rawCurveOffset : snapToHalf(rawCurveOffset),
@@ -8784,13 +9026,7 @@ export function FloorplanPanel() {
       const center = getWallMidpointHandlePoint(wall)
       setCursorPoint([center.x, center.y])
     },
-    [
-      clearWallEndpointDrag,
-      clearWallPlacementDraft,
-      handleWallSelect,
-      isWallBuildActive,
-      mode,
-    ],
+    [clearWallEndpointDrag, clearWallPlacementDraft, handleWallSelect, isWallBuildActive, mode],
   )
   const handleSlabVertexPointerDown = useCallback(
     (slabId: SlabNode['id'], vertexIndex: number, event: ReactPointerEvent<SVGCircleElement>) => {
@@ -9138,10 +9374,20 @@ export function FloorplanPanel() {
     zoneVertexDragState,
   ])
 
+  // Lightweight flag that mirrors the conditions under which
+  // FloorplanCursorIndicatorOverlay renders — used to gate cursor-position
+  // tracking. Derived locally here (rather than duplicating the overlay's full
+  // useMemos) so this handler doesn't need to know about catalogCategory.
+  const hasFloorplanCursorIndicator =
+    Boolean(movingOpeningType) ||
+    (mode === 'build' && tool !== null) ||
+    (mode === 'select' && floorplanSelectionTool === 'marquee' && structureLayer !== 'zones') ||
+    mode === 'delete'
+
   const handleSvgPointerMove = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
       if (
-        activeFloorplanCursorIndicator &&
+        hasFloorplanCursorIndicator &&
         !panStateRef.current &&
         !guideInteractionRef.current &&
         !wallEndpointDragRef.current &&
@@ -9170,8 +9416,8 @@ export function FloorplanPanel() {
       handlePointerMove(event)
     },
     [
-      activeFloorplanCursorIndicator,
       handlePointerMove,
+      hasFloorplanCursorIndicator,
       siteVertexDragState,
       slabVertexDragState,
       zoneVertexDragState,
@@ -9541,84 +9787,25 @@ export function FloorplanPanel() {
     setStructureLayer,
     site,
   ])
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      const isEditableTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        Boolean(target?.isContentEditable)
-
-      if (
-        isEditableTarget ||
-        !isFloorplanHovered ||
-        phase !== 'site' ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey ||
-        event.key.toLowerCase() !== 'v'
-      ) {
-        return
-      }
-
-      setFloorplanSelectionTool('click')
-      restoreGroundLevelStructureSelection()
+  const hasDuplicatableFloorplanSelection = Boolean(
+    selectedItemEntry || selectedOpeningEntry || selectedStairEntry,
+  )
+  const handleDuplicateFloorplanSelection = useCallback(() => {
+    if (selectedOpeningEntry) {
+      duplicateSelectedOpening()
+      return
     }
-
-    window.addEventListener('keydown', handleKeyDown, true)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true)
+    if (selectedItemEntry) {
+      duplicateSelectedItem()
+      return
     }
-  }, [isFloorplanHovered, phase, restoreGroundLevelStructureSelection])
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'c') {
-        return
-      }
-
-      if (
-        !(isFloorplanHovered && (selectedItemEntry || selectedOpeningEntry || selectedStairEntry))
-      ) {
-        return
-      }
-
-      const target = event.target as HTMLElement | null
-      const isEditableTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        Boolean(target?.isContentEditable)
-
-      if (isEditableTarget) {
-        return
-      }
-
-      event.preventDefault()
-      if (selectedOpeningEntry) {
-        duplicateSelectedOpening()
-        return
-      }
-
-      if (selectedItemEntry) {
-        duplicateSelectedItem()
-        return
-      }
-
-      if (selectedStairEntry) {
-        duplicateSelectedStair()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown, true)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown, true)
+    if (selectedStairEntry) {
+      duplicateSelectedStair()
     }
   }, [
     duplicateSelectedItem,
     duplicateSelectedOpening,
     duplicateSelectedStair,
-    isFloorplanHovered,
     selectedItemEntry,
     selectedOpeningEntry,
     selectedStairEntry,
@@ -9632,9 +9819,6 @@ export function FloorplanPanel() {
         : activeDraftAnchorPoint
           ? palette.draftStroke
           : palette.cursor
-  const activeCursorIndicatorPosition =
-    mode === 'delete' ? floorplanCursorPosition : floorplanCursorAnchorPosition
-
   return (
     <div
       className="pointer-events-auto flex h-full w-full flex-col overflow-hidden bg-background/95"
@@ -9645,80 +9829,20 @@ export function FloorplanPanel() {
       }}
       ref={containerRef}
     >
+      <FloorplanSiteKeyHandler onRestoreGroundLevel={restoreGroundLevelStructureSelection} />
+      <FloorplanDuplicateHotkey
+        hasDuplicatable={hasDuplicatableFloorplanSelection}
+        onDuplicateSelected={handleDuplicateFloorplanSelection}
+      />
       <div className="relative min-h-0 flex-1" ref={viewportHostRef}>
-        {activeFloorplanCursorIndicator && activeCursorIndicatorPosition && !isPanning && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute z-20"
-            style={{
-              left: activeCursorIndicatorPosition.x,
-              top: activeCursorIndicatorPosition.y,
-            }}
-          >
-            {mode === 'delete' ? (
-              <div
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/5 bg-zinc-900/95 shadow-[0_8px_16px_-4px_rgba(0,0,0,0.3),0_4px_8px_-4px_rgba(0,0,0,0.2)]"
-                style={{
-                  boxShadow: `0 8px 16px -4px rgba(0,0,0,0.3), 0 4px 8px -4px rgba(0,0,0,0.2), 0 0 18px ${floorplanCursorColor}22`,
-                  transform: `translate(${FLOORPLAN_CURSOR_BADGE_OFFSET_X}px, ${FLOORPLAN_CURSOR_BADGE_OFFSET_Y}px)`,
-                }}
-              >
-                {activeFloorplanCursorIndicator.kind === 'asset' ? (
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="h-5 w-5 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
-                    src={activeFloorplanCursorIndicator.iconSrc}
-                  />
-                ) : (
-                  <Icon
-                    aria-hidden="true"
-                    className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
-                    color={floorplanCursorColor}
-                    height={18}
-                    icon={activeFloorplanCursorIndicator.icon}
-                    width={18}
-                  />
-                )}
-              </div>
-            ) : (
-              <>
-                <div
-                  className="absolute top-0 left-1/2 w-px -translate-x-1/2 -translate-y-full"
-                  style={{
-                    backgroundColor: floorplanCursorColor,
-                    boxShadow: `0 0 12px ${floorplanCursorColor}55`,
-                    height: FLOORPLAN_CURSOR_INDICATOR_LINE_HEIGHT,
-                  }}
-                />
-                <div
-                  className="absolute top-0 left-1/2 flex h-8 w-8 items-center justify-center rounded-xl border border-white/5 bg-zinc-900/95 shadow-[0_8px_16px_-4px_rgba(0,0,0,0.3),0_4px_8px_-4px_rgba(0,0,0,0.2)]"
-                  style={{
-                    transform: `translate(-50%, calc(-100% - ${FLOORPLAN_CURSOR_INDICATOR_LINE_HEIGHT}px))`,
-                  }}
-                >
-                  {activeFloorplanCursorIndicator.kind === 'asset' ? (
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="h-5 w-5 object-contain drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
-                      src={activeFloorplanCursorIndicator.iconSrc}
-                    />
-                  ) : (
-                    <Icon
-                      aria-hidden="true"
-                      className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
-                      color="white"
-                      height={18}
-                      icon={activeFloorplanCursorIndicator.icon}
-                      width={18}
-                    />
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        <FloorplanCursorIndicatorOverlay
+          cursorAnchorPosition={floorplanCursorAnchorPosition}
+          cursorColor={floorplanCursorColor}
+          cursorPosition={floorplanCursorPosition}
+          floorplanSelectionTool={floorplanSelectionTool}
+          isPanning={isPanning}
+          movingOpeningType={movingOpeningType}
+        />
         {showGuides && canInteractWithGuides && selectedGuide && (
           <FloorplanGuideHandleHint
             anchor={guideHandleHintAnchor}
@@ -9727,111 +9851,41 @@ export function FloorplanPanel() {
             rotationModifierPressed={rotationModifierPressed}
           />
         )}
-        {selectedItemActionMenuPosition && isFloorplanHovered && !movingNode && !curvingWall && (
-          <div
-            className="absolute z-30"
-            style={{
-              left: selectedItemActionMenuPosition.x,
-              top: selectedItemActionMenuPosition.y,
-              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
-            }}
-          >
-            <NodeActionMenu
-              onDelete={handleSelectedItemDelete}
-              onDuplicate={handleSelectedItemDuplicate}
-              onMove={handleSelectedItemMove}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-            />
-          </div>
-        )}
-        {selectedWallActionMenuPosition && isFloorplanHovered && !movingNode && !curvingWall && (
-          <div
-            className="absolute z-30"
-            style={{
-              left: selectedWallActionMenuPosition.x,
-              top: selectedWallActionMenuPosition.y,
-              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
-            }}
-          >
-            <NodeActionMenu
-              onDelete={handleSelectedWallDelete}
-              onMove={handleSelectedWallMove}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-            />
-          </div>
-        )}
-        {selectedSlabActionMenuPosition && isFloorplanHovered && !movingNode && !curvingWall && (
-          <div
-            className="absolute z-30"
-            style={{
-              left: selectedSlabActionMenuPosition.x,
-              top: selectedSlabActionMenuPosition.y,
-              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
-            }}
-          >
-            <NodeActionMenu
-              onDelete={handleSelectedSlabDelete}
-              onMove={handleSelectedSlabMove}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-            />
-          </div>
-        )}
-        {selectedCeilingActionMenuPosition && isFloorplanHovered && !movingNode && !curvingWall && (
-          <div
-            className="absolute z-30"
-            style={{
-              left: selectedCeilingActionMenuPosition.x,
-              top: selectedCeilingActionMenuPosition.y,
-              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
-            }}
-          >
-            <NodeActionMenu
-              onDelete={handleSelectedCeilingDelete}
-              onMove={handleSelectedCeilingMove}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-            />
-          </div>
-        )}
-        {selectedOpeningActionMenuPosition && isFloorplanHovered && !movingNode && !curvingWall && (
-          <div
-            className="absolute z-30"
-            style={{
-              left: selectedOpeningActionMenuPosition.x,
-              top: selectedOpeningActionMenuPosition.y,
-              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
-            }}
-          >
-            <NodeActionMenu
-              onDelete={handleSelectedOpeningDelete}
-              onDuplicate={handleSelectedOpeningDuplicate}
-              onMove={handleSelectedOpeningMove}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-            />
-          </div>
-        )}
-        {selectedStairActionMenuPosition && isFloorplanHovered && !movingNode && !curvingWall && (
-          <div
-            className="absolute z-30"
-            style={{
-              left: selectedStairActionMenuPosition.x,
-              top: selectedStairActionMenuPosition.y,
-              transform: `translate(-50%, calc(-100% - ${FLOORPLAN_ACTION_MENU_OFFSET_Y}px))`,
-            }}
-          >
-            <NodeActionMenu
-              onDelete={handleSelectedStairDelete}
-              onDuplicate={handleSelectedStairDuplicate}
-              onMove={handleSelectedStairMove}
-              onPointerDown={(event) => event.stopPropagation()}
-              onPointerUp={(event) => event.stopPropagation()}
-            />
-          </div>
-        )}
+        <FloorplanActionMenuLayer
+          ceiling={{
+            position: selectedCeilingActionMenuPosition,
+            onDelete: handleSelectedCeilingDelete,
+            onMove: handleSelectedCeilingMove,
+          }}
+          item={{
+            position: selectedItemActionMenuPosition,
+            onDelete: handleSelectedItemDelete,
+            onDuplicate: handleSelectedItemDuplicate,
+            onMove: handleSelectedItemMove,
+          }}
+          opening={{
+            position: selectedOpeningActionMenuPosition,
+            onDelete: handleSelectedOpeningDelete,
+            onDuplicate: handleSelectedOpeningDuplicate,
+            onMove: handleSelectedOpeningMove,
+          }}
+          slab={{
+            position: selectedSlabActionMenuPosition,
+            onDelete: handleSelectedSlabDelete,
+            onMove: handleSelectedSlabMove,
+          }}
+          stair={{
+            position: selectedStairActionMenuPosition,
+            onDelete: handleSelectedStairDelete,
+            onDuplicate: handleSelectedStairDuplicate,
+            onMove: handleSelectedStairMove,
+          }}
+          wall={{
+            position: selectedWallActionMenuPosition,
+            onDelete: handleSelectedWallDelete,
+            onMove: handleSelectedWallMove,
+          }}
+        />
 
         {!levelNode || levelNode.type !== 'level' ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground text-sm">
@@ -9864,315 +9918,316 @@ export function FloorplanPanel() {
               <FloorplanGridLayer
                 majorGridPath={majorGridPath}
                 minorGridPath={minorGridPath}
-              palette={palette}
-              showGrid={showGrid}
-            />
-
-            <FloorplanGuideLayer
-              activeGuideInteractionGuideId={activeGuideInteractionGuideId}
-              activeGuideInteractionMode={activeGuideInteractionMode}
-              guides={displayGuides}
-              isInteractive={canInteractWithGuides}
-              onGuideSelect={handleGuideSelect}
-              onGuideTranslateStart={handleGuideTranslateStart}
-              selectedGuideId={selectedGuideId}
-            />
-
-            <FloorplanSiteLayer isEditing={isSiteEditActive} sitePolygon={visibleSitePolygon} />
-
-            <FloorplanGeometryLayer
-              canFocusGeometry={canSelectElementFloorplanGeometry}
-              canSelectGeometry={canInteractElementFloorplanGeometry}
-              canSelectSlabs={canInteractFloorplanSlabs}
-              highlightedIdSet={highlightedFloorplanIdSet}
-              hoveredOpeningId={hoveredOpeningId}
-              hoveredSlabId={hoveredSlabId}
-              hoveredWallId={hoveredWallId}
-              isDeleteMode={isDeleteMode}
-              onOpeningDoubleClick={handleOpeningDoubleClick}
-              onOpeningHoverChange={handleOpeningHoverChange}
-              onOpeningPointerDown={handleOpeningPointerDown}
-              onOpeningSelect={handleOpeningSelect}
-              onSlabDoubleClick={handleSlabDoubleClick}
-              onSlabHoverChange={handleSlabHoverChange}
-              onSlabSelect={handleSlabSelect}
-              onWallClick={handleWallClick}
-              onWallDoubleClick={handleWallDoubleClick}
-              onWallHoverChange={handleWallHoverChange}
-              openingsPolygons={openingsPolygons}
-              palette={palette}
-              selectedIdSet={selectedIdSet}
-              slabPolygons={displaySlabPolygons}
-              unit={unit}
-              wallPolygons={displayWallPolygons}
-            />
-
-            <FloorplanZoneLayer
-              canSelectZones={canInteractFloorplanZones}
-              hoveredZoneId={hoveredZoneId}
-              isDeleteMode={isDeleteMode}
-              onZoneHoverChange={handleZoneHoverChange}
-              onZoneSelect={handleZoneSelect}
-              palette={palette}
-              selectedZoneId={selectedZoneId}
-              zonePolygons={visibleZonePolygons}
-            />
-
-            <FloorplanNodeLayer
-              canFocusItems={canFocusFloorplanItems}
-              canFocusStairs={canFocusFloorplanStairs}
-              canSelectItems={canSelectFloorplanItems}
-              canSelectStairs={canSelectFloorplanStairs}
-              highlightedIdSet={highlightedFloorplanIdSet}
-              hoveredItemId={hoveredItemId}
-              hoveredStairId={hoveredStairId}
-              isDeleteMode={isDeleteMode}
-              isFurnishContextActive={isFloorplanFurnishContextActive}
-              itemEntries={floorplanItemEntries}
-              onItemDoubleClick={handleItemDoubleClick}
-              onItemHoverChange={handleItemHoverChange}
-              onItemHoverEnter={handleFloorplanItemHoverEnter}
-              onItemPointerDown={handleItemPointerDown}
-              onItemSelect={handleItemSelect}
-              onStairDoubleClick={handleStairDoubleClick}
-              onStairHoverChange={handleStairHoverChange}
-              onStairHoverEnter={handleFloorplanStairHoverEnter}
-              onStairSelect={handleStairSelect}
-              palette={palette}
-              selectedIdSet={selectedIdSet}
-              stairEntries={renderedFloorplanStairEntries}
-            />
-
-            {/* Zone labels: always visible so users can click to select zones from any mode */}
-            <FloorplanZoneLabelLayer
-              onLabelHoverChange={handleZoneHoverChange}
-              onZoneLabelClick={handleZoneLabelClick}
-              selectedZoneId={selectedZoneId}
-              svgRef={svgRef}
-              viewBox={viewBox}
-              zonePolygons={displayZonePolygons}
-            />
-
-            <FloorplanPolygonHandleLayer
-              hoveredHandleId={hoveredSiteHandleId}
-              midpointHandles={siteMidpointHandles}
-              onHandleHoverChange={setHoveredSiteHandleId}
-              onMidpointPointerDown={(nodeId, edgeIndex, event) =>
-                handleSiteMidpointPointerDown(nodeId as SiteNode['id'], edgeIndex, event)
-              }
-              onVertexDoubleClick={(nodeId, vertexIndex, event) =>
-                handleSiteVertexDoubleClick(nodeId as SiteNode['id'], vertexIndex, event)
-              }
-              onVertexPointerDown={(nodeId, vertexIndex, event) =>
-                handleSiteVertexPointerDown(nodeId as SiteNode['id'], vertexIndex, event)
-              }
-              palette={palette}
-              vertexHandles={siteVertexHandles}
-            />
-
-            {isMarqueeSelectionToolActive && (
-              <rect
-                fill="transparent"
-                height={viewBox.height}
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                }}
-                onDoubleClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                }}
-                onPointerCancel={handleMarqueePointerCancel}
-                onPointerDown={handleMarqueePointerDown}
-                onPointerMove={handleMarqueePointerMove}
-                onPointerUp={handleMarqueePointerUp}
-                style={{ cursor: EDITOR_CURSOR }}
-                width={viewBox.width}
-                x={viewBox.minX}
-                y={viewBox.minY}
+                palette={palette}
+                showGrid={showGrid}
               />
-            )}
 
-            {visibleSvgMarqueeBounds && (
-              <>
+              <FloorplanGuideLayer
+                activeGuideInteractionGuideId={activeGuideInteractionGuideId}
+                activeGuideInteractionMode={activeGuideInteractionMode}
+                guides={displayGuides}
+                isInteractive={canInteractWithGuides}
+                onGuideSelect={handleGuideSelect}
+                onGuideTranslateStart={handleGuideTranslateStart}
+                selectedGuideId={selectedGuideId}
+              />
+
+              <FloorplanSiteLayer isEditing={isSiteEditActive} sitePolygon={visibleSitePolygon} />
+
+              <FloorplanGeometryLayer
+                canFocusGeometry={canSelectElementFloorplanGeometry}
+                canSelectGeometry={canInteractElementFloorplanGeometry}
+                canSelectSlabs={canInteractFloorplanSlabs}
+                highlightedIdSet={highlightedFloorplanIdSet}
+                hoveredOpeningId={hoveredOpeningId}
+                hoveredSlabId={hoveredSlabId}
+                hoveredWallId={hoveredWallId}
+                isDeleteMode={isDeleteMode}
+                onOpeningDoubleClick={handleOpeningDoubleClick}
+                onOpeningHoverChange={handleOpeningHoverChange}
+                onOpeningPointerDown={handleOpeningPointerDown}
+                onOpeningSelect={handleOpeningSelect}
+                onSlabDoubleClick={handleSlabDoubleClick}
+                onSlabHoverChange={handleSlabHoverChange}
+                onSlabSelect={handleSlabSelect}
+                onWallClick={handleWallClick}
+                onWallDoubleClick={handleWallDoubleClick}
+                onWallHoverChange={handleWallHoverChange}
+                openingsPolygons={openingsPolygons}
+                palette={palette}
+                selectedIdSet={selectedIdSet}
+                slabPolygons={displaySlabPolygons}
+                unit={unit}
+                wallPolygons={displayWallPolygons}
+              />
+
+              <FloorplanZoneLayer
+                canSelectZones={canInteractFloorplanZones}
+                hoveredZoneId={hoveredZoneId}
+                isDeleteMode={isDeleteMode}
+                onZoneHoverChange={handleZoneHoverChange}
+                onZoneSelect={handleZoneSelect}
+                palette={palette}
+                selectedZoneId={selectedZoneId}
+                zonePolygons={visibleZonePolygons}
+              />
+
+              <FloorplanNodeLayer
+                canFocusItems={canFocusFloorplanItems}
+                canFocusStairs={canFocusFloorplanStairs}
+                canSelectItems={canSelectFloorplanItems}
+                canSelectStairs={canSelectFloorplanStairs}
+                highlightedIdSet={highlightedFloorplanIdSet}
+                hoveredItemId={hoveredItemId}
+                hoveredStairId={hoveredStairId}
+                isDeleteMode={isDeleteMode}
+                isFurnishContextActive={isFloorplanFurnishContextActive}
+                itemEntries={floorplanItemEntries}
+                onItemDoubleClick={handleItemDoubleClick}
+                onItemHoverChange={handleItemHoverChange}
+                onItemHoverEnter={handleFloorplanItemHoverEnter}
+                onItemPointerDown={handleItemPointerDown}
+                onItemSelect={handleItemSelect}
+                onStairDoubleClick={handleStairDoubleClick}
+                onStairHoverChange={handleStairHoverChange}
+                onStairHoverEnter={handleFloorplanStairHoverEnter}
+                onStairSelect={handleStairSelect}
+                palette={palette}
+                selectedIdSet={selectedIdSet}
+                stairEntries={renderedFloorplanStairEntries}
+              />
+
+              {/* Zone labels: always visible so users can click to select zones from any mode */}
+              <FloorplanZoneLabelLayer
+                onLabelHoverChange={handleZoneHoverChange}
+                onZoneLabelClick={handleZoneLabelClick}
+                selectedZoneId={selectedZoneId}
+                svgRef={svgRef}
+                viewBox={viewBox}
+                zonePolygons={displayZonePolygons}
+              />
+
+              <FloorplanPolygonHandleLayer
+                hoveredHandleId={hoveredSiteHandleId}
+                midpointHandles={siteMidpointHandles}
+                onHandleHoverChange={setHoveredSiteHandleId}
+                onMidpointPointerDown={(nodeId, edgeIndex, event) =>
+                  handleSiteMidpointPointerDown(nodeId as SiteNode['id'], edgeIndex, event)
+                }
+                onVertexDoubleClick={(nodeId, vertexIndex, event) =>
+                  handleSiteVertexDoubleClick(nodeId as SiteNode['id'], vertexIndex, event)
+                }
+                onVertexPointerDown={(nodeId, vertexIndex, event) =>
+                  handleSiteVertexPointerDown(nodeId as SiteNode['id'], vertexIndex, event)
+                }
+                palette={palette}
+                vertexHandles={siteVertexHandles}
+              />
+
+              {isMarqueeSelectionToolActive && (
                 <rect
-                  fill={palette.cursor}
-                  fillOpacity={0.12}
-                  height={visibleSvgMarqueeBounds.height}
-                  pointerEvents="none"
-                  stroke={palette.cursor}
-                  strokeOpacity={0.26}
-                  strokeWidth={FLOORPLAN_MARQUEE_GLOW_WIDTH}
-                  vectorEffect="non-scaling-stroke"
-                  width={visibleSvgMarqueeBounds.width}
-                  x={visibleSvgMarqueeBounds.x}
-                  y={visibleSvgMarqueeBounds.y}
+                  fill="transparent"
+                  height={viewBox.height}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onPointerCancel={handleMarqueePointerCancel}
+                  onPointerDown={handleMarqueePointerDown}
+                  onPointerMove={handleMarqueePointerMove}
+                  onPointerUp={handleMarqueePointerUp}
+                  style={{ cursor: EDITOR_CURSOR }}
+                  width={viewBox.width}
+                  x={viewBox.minX}
+                  y={viewBox.minY}
                 />
-                <rect
+              )}
+
+              {visibleSvgMarqueeBounds && (
+                <>
+                  <rect
+                    fill={palette.cursor}
+                    fillOpacity={0.12}
+                    height={visibleSvgMarqueeBounds.height}
+                    pointerEvents="none"
+                    stroke={palette.cursor}
+                    strokeOpacity={0.26}
+                    strokeWidth={FLOORPLAN_MARQUEE_GLOW_WIDTH}
+                    vectorEffect="non-scaling-stroke"
+                    width={visibleSvgMarqueeBounds.width}
+                    x={visibleSvgMarqueeBounds.x}
+                    y={visibleSvgMarqueeBounds.y}
+                  />
+                  <rect
+                    fill="none"
+                    height={visibleSvgMarqueeBounds.height}
+                    pointerEvents="none"
+                    stroke={palette.cursor}
+                    strokeOpacity={0.96}
+                    strokeWidth={FLOORPLAN_MARQUEE_OUTLINE_WIDTH}
+                    vectorEffect="non-scaling-stroke"
+                    width={visibleSvgMarqueeBounds.width}
+                    x={visibleSvgMarqueeBounds.x}
+                    y={visibleSvgMarqueeBounds.y}
+                  />
+                </>
+              )}
+
+              {draftPolygon && (
+                <polygon
+                  fill={palette.draftFill}
+                  fillOpacity={0.35}
+                  points={draftPolygonPoints ?? undefined}
+                  stroke={palette.draftStroke}
+                  strokeDasharray="0.24 0.12"
+                  strokeWidth="0.07"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+
+              {polygonDraftPolygonPoints && (
+                <polygon
+                  fill={palette.draftFill}
+                  fillOpacity={0.2}
+                  points={polygonDraftPolygonPoints}
+                  stroke="none"
+                />
+              )}
+
+              {polygonDraftPolylinePoints && (
+                <polyline
                   fill="none"
-                  height={visibleSvgMarqueeBounds.height}
-                  pointerEvents="none"
-                  stroke={palette.cursor}
-                  strokeOpacity={0.96}
-                  strokeWidth={FLOORPLAN_MARQUEE_OUTLINE_WIDTH}
+                  points={polygonDraftPolylinePoints}
+                  stroke={palette.draftStroke}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="0.08"
                   vectorEffect="non-scaling-stroke"
-                  width={visibleSvgMarqueeBounds.width}
-                  x={visibleSvgMarqueeBounds.x}
-                  y={visibleSvgMarqueeBounds.y}
                 />
-              </>
-            )}
+              )}
 
-            {draftPolygon && (
-              <polygon
-                fill={palette.draftFill}
-                fillOpacity={0.35}
-                points={draftPolygonPoints ?? undefined}
-                stroke={palette.draftStroke}
-                strokeDasharray="0.24 0.12"
-                strokeWidth="0.07"
-                vectorEffect="non-scaling-stroke"
-              />
-            )}
+              {polygonDraftClosingSegment && (
+                <line
+                  stroke={palette.draftStroke}
+                  strokeDasharray="0.16 0.1"
+                  strokeLinecap="round"
+                  strokeOpacity={0.75}
+                  strokeWidth="0.05"
+                  vectorEffect="non-scaling-stroke"
+                  x1={polygonDraftClosingSegment.x1}
+                  x2={polygonDraftClosingSegment.x2}
+                  y1={polygonDraftClosingSegment.y1}
+                  y2={polygonDraftClosingSegment.y2}
+                />
+              )}
 
-            {polygonDraftPolygonPoints && (
-              <polygon
-                fill={palette.draftFill}
-                fillOpacity={0.2}
-                points={polygonDraftPolygonPoints}
-                stroke="none"
-              />
-            )}
-
-            {polygonDraftPolylinePoints && (
-              <polyline
-                fill="none"
-                points={polygonDraftPolylinePoints}
-                stroke={palette.draftStroke}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="0.08"
-                vectorEffect="non-scaling-stroke"
-              />
-            )}
-
-            {polygonDraftClosingSegment && (
-              <line
-                stroke={palette.draftStroke}
-                strokeDasharray="0.16 0.1"
-                strokeLinecap="round"
-                strokeOpacity={0.75}
-                strokeWidth="0.05"
-                vectorEffect="non-scaling-stroke"
-                x1={polygonDraftClosingSegment.x1}
-                x2={polygonDraftClosingSegment.x2}
-                y1={polygonDraftClosingSegment.y1}
-                y2={polygonDraftClosingSegment.y2}
-              />
-            )}
-
-            {activePolygonDraftPoints.map((point, index) => (
-              <circle
-                cx={toSvgX(point[0])}
-                cy={toSvgY(point[1])}
-                fill={index === 0 ? palette.anchor : palette.draftStroke}
-                fillOpacity={0.95}
-                key={`polygon-draft-${index}`}
-                pointerEvents="none"
-                r={index === 0 ? 0.12 : 0.1}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-
-            <FloorplanWallEndpointLayer
-              endpointHandles={wallEndpointHandles}
-              hoveredEndpointId={hoveredEndpointId}
-              onEndpointHoverChange={setHoveredEndpointId}
-              onWallEndpointPointerDown={handleWallEndpointPointerDown}
-              palette={palette}
-            />
-            <FloorplanWallCurveHandleLayer
-              curveHandles={wallCurveHandles}
-              hoveredHandleId={hoveredWallCurveHandleId}
-              onHandleHoverChange={setHoveredWallCurveHandleId}
-              onWallCurvePointerDown={handleWallCurvePointerDown}
-              palette={palette}
-            />
-
-            <FloorplanPolygonHandleLayer
-              hoveredHandleId={hoveredSlabHandleId}
-              midpointHandles={slabMidpointHandles}
-              onHandleHoverChange={setHoveredSlabHandleId}
-              onMidpointPointerDown={(nodeId, edgeIndex, event) =>
-                handleSlabMidpointPointerDown(nodeId as SlabNode['id'], edgeIndex, event)
-              }
-              onVertexDoubleClick={(nodeId, vertexIndex, event) =>
-                handleSlabVertexDoubleClick(nodeId as SlabNode['id'], vertexIndex, event)
-              }
-              onVertexPointerDown={(nodeId, vertexIndex, event) =>
-                handleSlabVertexPointerDown(nodeId as SlabNode['id'], vertexIndex, event)
-              }
-              palette={palette}
-              vertexHandles={slabVertexHandles}
-            />
-
-            <FloorplanPolygonHandleLayer
-              hoveredHandleId={hoveredZoneHandleId}
-              midpointHandles={zoneMidpointHandles}
-              onHandleHoverChange={setHoveredZoneHandleId}
-              onMidpointPointerDown={(nodeId, edgeIndex, event) =>
-                handleZoneMidpointPointerDown(nodeId as ZoneNodeType['id'], edgeIndex, event)
-              }
-              onVertexDoubleClick={(nodeId, vertexIndex, event) =>
-                handleZoneVertexDoubleClick(nodeId as ZoneNodeType['id'], vertexIndex, event)
-              }
-              onVertexPointerDown={(nodeId, vertexIndex, event) =>
-                handleZoneVertexPointerDown(nodeId as ZoneNodeType['id'], vertexIndex, event)
-              }
-              palette={palette}
-              vertexHandles={zoneVertexHandles}
-            />
-
-            {selectedGuide && showGuides && (
-              <FloorplanGuideSelectionOverlay
-                guide={selectedGuide}
-                isDarkMode={theme === 'dark'}
-                onCornerHoverChange={setHoveredGuideCorner}
-                onCornerPointerDown={handleGuideCornerPointerDown}
-                rotationModifierPressed={rotationModifierPressed}
-                showHandles={canInteractWithGuides}
-              />
-            )}
-
-            {cursorPoint && (
-              <g>
+              {activePolygonDraftPoints.map((point, index) => (
                 <circle
-                  cx={toSvgX(cursorPoint[0])}
-                  cy={toSvgY(cursorPoint[1])}
-                  fill={floorplanCursorColor}
-                  fillOpacity={0.25}
-                  r={FLOORPLAN_CURSOR_MARKER_GLOW_RADIUS}
+                  cx={toSvgX(point[0])}
+                  cy={toSvgY(point[1])}
+                  fill={index === 0 ? palette.anchor : palette.draftStroke}
+                  fillOpacity={0.95}
+                  key={`polygon-draft-${index}`}
+                  pointerEvents="none"
+                  r={index === 0 ? 0.12 : 0.1}
+                  vectorEffect="non-scaling-stroke"
                 />
-                <circle
-                  cx={toSvgX(cursorPoint[0])}
-                  cy={toSvgY(cursorPoint[1])}
-                  fill={floorplanCursorColor}
-                  fillOpacity={0.9}
-                  r={FLOORPLAN_CURSOR_MARKER_CORE_RADIUS}
-                />
-              </g>
-            )}
+              ))}
 
-            {activeDraftAnchorPoint && (
-              <circle
-                cx={toSvgX(activeDraftAnchorPoint[0])}
-                cy={toSvgY(activeDraftAnchorPoint[1])}
-                fill={palette.anchor}
-                fillOpacity={0.95}
-                r="0.14"
-                vectorEffect="non-scaling-stroke"
+              <FloorplanWallEndpointLayer
+                endpointHandles={wallEndpointHandles}
+                hoveredEndpointId={hoveredEndpointId}
+                onEndpointHoverChange={setHoveredEndpointId}
+                onWallEndpointPointerDown={handleWallEndpointPointerDown}
+                palette={palette}
               />
-            )}
+
+              <FloorplanWallCurveHandleLayer
+                curveHandles={wallCurveHandles}
+                hoveredHandleId={hoveredWallCurveHandleId}
+                onHandleHoverChange={setHoveredWallCurveHandleId}
+                onWallCurvePointerDown={handleWallCurvePointerDown}
+                palette={palette}
+              />
+
+              <FloorplanPolygonHandleLayer
+                hoveredHandleId={hoveredSlabHandleId}
+                midpointHandles={slabMidpointHandles}
+                onHandleHoverChange={setHoveredSlabHandleId}
+                onMidpointPointerDown={(nodeId, edgeIndex, event) =>
+                  handleSlabMidpointPointerDown(nodeId as SlabNode['id'], edgeIndex, event)
+                }
+                onVertexDoubleClick={(nodeId, vertexIndex, event) =>
+                  handleSlabVertexDoubleClick(nodeId as SlabNode['id'], vertexIndex, event)
+                }
+                onVertexPointerDown={(nodeId, vertexIndex, event) =>
+                  handleSlabVertexPointerDown(nodeId as SlabNode['id'], vertexIndex, event)
+                }
+                palette={palette}
+                vertexHandles={slabVertexHandles}
+              />
+
+              <FloorplanPolygonHandleLayer
+                hoveredHandleId={hoveredZoneHandleId}
+                midpointHandles={zoneMidpointHandles}
+                onHandleHoverChange={setHoveredZoneHandleId}
+                onMidpointPointerDown={(nodeId, edgeIndex, event) =>
+                  handleZoneMidpointPointerDown(nodeId as ZoneNodeType['id'], edgeIndex, event)
+                }
+                onVertexDoubleClick={(nodeId, vertexIndex, event) =>
+                  handleZoneVertexDoubleClick(nodeId as ZoneNodeType['id'], vertexIndex, event)
+                }
+                onVertexPointerDown={(nodeId, vertexIndex, event) =>
+                  handleZoneVertexPointerDown(nodeId as ZoneNodeType['id'], vertexIndex, event)
+                }
+                palette={palette}
+                vertexHandles={zoneVertexHandles}
+              />
+
+              {selectedGuide && showGuides && (
+                <FloorplanGuideSelectionOverlay
+                  guide={selectedGuide}
+                  isDarkMode={theme === 'dark'}
+                  onCornerHoverChange={setHoveredGuideCorner}
+                  onCornerPointerDown={handleGuideCornerPointerDown}
+                  rotationModifierPressed={rotationModifierPressed}
+                  showHandles={canInteractWithGuides}
+                />
+              )}
+
+              {cursorPoint && (
+                <g>
+                  <circle
+                    cx={toSvgX(cursorPoint[0])}
+                    cy={toSvgY(cursorPoint[1])}
+                    fill={floorplanCursorColor}
+                    fillOpacity={0.25}
+                    r={FLOORPLAN_CURSOR_MARKER_GLOW_RADIUS}
+                  />
+                  <circle
+                    cx={toSvgX(cursorPoint[0])}
+                    cy={toSvgY(cursorPoint[1])}
+                    fill={floorplanCursorColor}
+                    fillOpacity={0.9}
+                    r={FLOORPLAN_CURSOR_MARKER_CORE_RADIUS}
+                  />
+                </g>
+              )}
+
+              {activeDraftAnchorPoint && (
+                <circle
+                  cx={toSvgX(activeDraftAnchorPoint[0])}
+                  cy={toSvgY(activeDraftAnchorPoint[1])}
+                  fill={palette.anchor}
+                  fillOpacity={0.95}
+                  r="0.14"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
             </g>
           </svg>
         )}

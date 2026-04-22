@@ -1,7 +1,7 @@
 import { type AnyNodeId, type CeilingNode, useScene } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
 import Image from 'next/image'
-import { useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import useEditor from './../../../../../store/use-editor'
 import { InlineRenameInput } from './inline-rename-input'
@@ -14,7 +14,11 @@ interface CeilingTreeNodeProps {
   isLast?: boolean
 }
 
-export function CeilingTreeNode({ nodeId, depth, isLast }: CeilingTreeNodeProps) {
+export const CeilingTreeNode = memo(function CeilingTreeNode({
+  nodeId,
+  depth,
+  isLast,
+}: CeilingTreeNodeProps) {
   const [expanded, setExpanded] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const isVisible = useScene((s) => s.nodes[nodeId as AnyNodeId]?.visible !== false)
@@ -113,7 +117,7 @@ export function CeilingTreeNode({ nodeId, depth, isLast }: CeilingTreeNodeProps)
       ))}
     </TreeNodeWrapper>
   )
-}
+})
 
 /**
  * Calculate the area of a polygon using the shoelace formula
@@ -126,8 +130,11 @@ function calculatePolygonArea(polygon: Array<[number, number]>): number {
 
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n
-    area += (polygon[i]![0]) * (polygon[j]![1])
-    area -= (polygon[j]![0]) * (polygon[i]![1])
+    const pi = polygon[i]
+    const pj = polygon[j]
+    if (!(pi && pj)) continue
+    area += pi[0] * pj[1]
+    area -= pj[0] * pi[1]
   }
 
   return Math.abs(area) / 2

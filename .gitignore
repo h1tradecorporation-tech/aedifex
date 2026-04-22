@@ -19,8 +19,9 @@ coverage
 # Turbo
 .turbo
 
-# AI configuration (local only, never publish)
-.claude/
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
 
 # Vercel
 .vercel
@@ -44,4 +45,11 @@ yarn-error.log*
 /.playwright-mcp
 og-test
 .env*.local
+
+# AI assistant local config (not for repo)
+.claude/
+.cursor/
 .gstack/
+CLAUDE.md
+AGENTS.md
+CHANGELOG.md

@@ -1,9 +1,10 @@
 import { emitter, type GridEvent, sceneRegistry } from '@aedifex/core'
 import { createPortal } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BufferGeometry, Float32BufferAttribute, type Line } from 'three'
+import { BufferGeometry, Float32BufferAttribute, type Line, type Object3D } from 'three'
 import { EDITOR_LAYER } from '../../../lib/constants'
 import { sfxEmitter } from '../../../lib/sfx-bus'
+import { snapToHalf } from '../item/placement-math'
 
 const Y_OFFSET = 0.02
 
@@ -44,8 +45,40 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
   surfaceHeight = 0,
   allowPolygonMove = false,
 }) => {
-  // Get level node from registry if levelId is provided
-  const levelNode = levelId ? sceneRegistry.nodes.get(levelId) : null
+  const [levelNode, setLevelNode] = useState<Object3D | null>(() =>
+    levelId ? (sceneRegistry.nodes.get(levelId) ?? null) : null,
+  )
+
+  useEffect(() => {
+    if (!levelId) {
+      setLevelNode(null)
+      return
+    }
+
+    let frameId = 0
+
+    const resolveLevelNode = () => {
+      const nextLevelNode = sceneRegistry.nodes.get(levelId) ?? null
+      setLevelNode((currentLevelNode) => {
+        if (currentLevelNode === nextLevelNode) {
+          return currentLevelNode
+        }
+        return nextLevelNode
+      })
+
+      if (!nextLevelNode) {
+        frameId = window.requestAnimationFrame(resolveLevelNode)
+      }
+    }
+
+    resolveLevelNode()
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId)
+      }
+    }
+  }, [levelId])
 
   // When using portal, edit at Y_OFFSET (local to level)
   // When not using portal, edit at world origin
@@ -155,8 +188,8 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
   // Listen to grid:move events to track cursor position
   useEffect(() => {
     const onGridMove = (event: GridEvent) => {
-      const gridX = Math.round(event.localPosition[0] * 2) / 2
-      const gridZ = Math.round(event.localPosition[2] * 2) / 2
+      const gridX = snapToHalf(event.localPosition[0])
+      const gridZ = snapToHalf(event.localPosition[2])
       const newPosition: [number, number] = [gridX, gridZ]
 
       // Play snap sound when cursor moves to a new grid cell during drag
@@ -290,18 +323,18 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
             castShadow
             key={`vertex-${index}`}
             layers={EDITOR_LAYER}
-            onClick={(e) => {
+            onClick={(e: any) => {
               if (e.button !== 0) return
               e.stopPropagation()
             }}
-            onDoubleClick={(e) => {
+            onDoubleClick={(e: any) => {
               if (e.button !== 0) return
               e.stopPropagation()
               if (canDelete) {
                 handleDeleteVertex(index)
               }
             }}
-            onPointerDown={(e) => {
+            onPointerDown={(e: any) => {
               if (e.button !== 0) return
               e.stopPropagation()
               setDragState({
@@ -313,11 +346,11 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
                 pointerId: e.pointerId,
               })
             }}
-            onPointerEnter={(e) => {
+            onPointerEnter={(e: any) => {
               e.stopPropagation()
               setHoveredVertex(index)
             }}
-            onPointerLeave={(e) => {
+            onPointerLeave={(e: any) => {
               e.stopPropagation()
               setHoveredVertex(null)
             }}
@@ -335,11 +368,11 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
         <mesh
           castShadow
           layers={EDITOR_LAYER}
-          onClick={(e) => {
+          onClick={(e: any) => {
             if (e.button !== 0) return
             e.stopPropagation()
           }}
-          onPointerDown={(e) => {
+          onPointerDown={(e: any) => {
             if (e.button !== 0) return
             e.stopPropagation()
             setDragState({
@@ -373,11 +406,11 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
             <mesh
               key={`midpoint-${index}`}
               layers={EDITOR_LAYER}
-              onClick={(e) => {
+              onClick={(e: any) => {
                 if (e.button !== 0) return
                 e.stopPropagation()
               }}
-              onPointerDown={(e) => {
+              onPointerDown={(e: any) => {
                 if (e.button !== 0) return
                 e.stopPropagation()
                 const newVertexIndex = handleAddVertex(index, [x!, z!])
@@ -393,11 +426,11 @@ export const PolygonEditor: React.FC<PolygonEditorProps> = ({
                   setHoveredMidpoint(null)
                 }
               }}
-              onPointerEnter={(e) => {
+              onPointerEnter={(e: any) => {
                 e.stopPropagation()
                 setHoveredMidpoint(index)
               }}
-              onPointerLeave={(e) => {
+              onPointerLeave={(e: any) => {
                 e.stopPropagation()
                 setHoveredMidpoint(null)
               }}

@@ -87,9 +87,9 @@ function Item({
   icon: React.ReactNode
   label: string | (() => string)
   onSelect: () => void
-  shortcut?: readonly string[]
+  shortcut?: string[]
   disabled?: boolean
-  keywords?: readonly string[]
+  keywords?: string[]
   badge?: string | (() => string)
   navigate?: boolean
 }) {
@@ -100,7 +100,7 @@ function Item({
     <Command.Item
       className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-foreground text-sm transition-colors data-[disabled=true]:cursor-not-allowed data-[selected=true]:bg-accent data-[disabled=true]:opacity-40"
       disabled={disabled}
-      keywords={keywords ? [...keywords] : undefined}
+      keywords={keywords}
       onSelect={onSelect}
       value={resolvedLabel}
     >
@@ -113,7 +113,7 @@ function Item({
           {resolvedBadge}
         </span>
       )}
-      {shortcut && <Shortcut keys={[...shortcut]} />}
+      {shortcut && <Shortcut keys={shortcut} />}
       {(resolvedBadge || navigate) && (
         <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
       )}
@@ -219,7 +219,6 @@ export function CommandPalette({ emptyAction }: { emptyAction?: CommandPaletteEm
   const views = usePaletteViewRegistry((s) => s.views)
 
   const activeLevelId = useViewer((s) => s.selection.levelId)
-  const activeLevelNode = useScene((s) => (activeLevelId ? s.nodes[activeLevelId] : null))
 
   const wallMode = useViewer((s) => s.wallMode)
   const setWallMode = useViewer((s) => s.setWallMode)

@@ -1,6 +1,6 @@
 import { type AnyNodeId, useScene, type ZoneNode } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
-import { useCallback, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { ColorDot } from './../../../../../components/ui/primitives/color-dot'
 import { InlineRenameInput } from './inline-rename-input'
 import { focusTreeNode, TreeNodeWrapper } from './tree-node'
@@ -12,7 +12,11 @@ interface ZoneTreeNodeProps {
   isLast?: boolean
 }
 
-export function ZoneTreeNode({ nodeId, depth, isLast }: ZoneTreeNodeProps) {
+export const ZoneTreeNode = memo(function ZoneTreeNode({
+  nodeId,
+  depth,
+  isLast,
+}: ZoneTreeNodeProps) {
   const [isEditing, setIsEditing] = useState(false)
   const updateNode = useScene((state) => state.updateNode)
   const isVisible = useScene((s) => s.nodes[nodeId]?.visible !== false)
@@ -23,7 +27,10 @@ export function ZoneTreeNode({ nodeId, depth, isLast }: ZoneTreeNodeProps) {
   const setSelection = useViewer((state) => state.setSelection)
   const setHoveredId = useViewer((state) => state.setHoveredId)
 
-  const handleClick = useCallback(() => setSelection({ zoneId: nodeId as ZoneNode['id'] }), [nodeId, setSelection])
+  const handleClick = useCallback(
+    () => setSelection({ zoneId: nodeId as ZoneNode['id'] }),
+    [nodeId, setSelection],
+  )
   const handleDoubleClick = useCallback(() => focusTreeNode(nodeId), [nodeId])
   const handleMouseEnter = useCallback(() => setHoveredId(nodeId), [nodeId, setHoveredId])
   const handleMouseLeave = useCallback(() => setHoveredId(null), [setHoveredId])
@@ -34,13 +41,15 @@ export function ZoneTreeNode({ nodeId, depth, isLast }: ZoneTreeNodeProps) {
   const area = calculatePolygonArea(polygon).toFixed(1)
   const defaultName = `Zone (${area}m²)`
 
+  const safeColor = color ?? '#cccccc'
+
   return (
     <TreeNodeWrapper
       actions={<TreeNodeActions nodeId={nodeId} />}
       depth={depth}
       expanded={false}
       hasChildren={false}
-      icon={<ColorDot color={color ?? '#888888'} onChange={(c) => updateNode(nodeId, { color: c })} />}
+      icon={<ColorDot color={safeColor} onChange={(c) => updateNode(nodeId, { color: c })} />}
       isHovered={isHovered}
       isLast={isLast}
       isSelected={isSelected}
@@ -61,7 +70,7 @@ export function ZoneTreeNode({ nodeId, depth, isLast }: ZoneTreeNodeProps) {
       onToggle={() => {}}
     />
   )
-}
+})
 
 /**
  * Calculate the area of a polygon using the shoelace formula
@@ -74,8 +83,11 @@ function calculatePolygonArea(polygon: Array<[number, number]>): number {
 
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n
-    area += (polygon[i]![0]) * (polygon[j]![1])
-    area -= (polygon[j]![0]) * (polygon[i]![1])
+    const pi = polygon[i]
+    const pj = polygon[j]
+    if (!(pi && pj)) continue
+    area += pi[0] * pj[1]
+    area -= pj[0] * pi[1]
   }
 
   return Math.abs(area) / 2

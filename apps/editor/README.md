@@ -1,4 +1,4 @@
-# Aedifex
+# Pascal Editor
 
 A 3D building editor built with React Three Fiber and WebGPU.
 
@@ -345,7 +345,7 @@ pnpm install
 # Run development server
 pnpm dev
 
-# Open http://localhost:3002
+# Open http://localhost:3000
 ```
 
 ---

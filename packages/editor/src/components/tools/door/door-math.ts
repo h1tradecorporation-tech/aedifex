@@ -59,7 +59,7 @@ export function hasWallChildOverlap(
   width: number,
   height: number,
   ignoreId?: string,
-  ignoreIds?: Set<string>,
+  pendingRemovalIds?: ReadonlySet<string> | string[],
 ): boolean {
   const nodes = useScene.getState().nodes
   const wallNode = nodes[wallId as AnyNodeId] as WallNode | undefined
@@ -70,15 +70,18 @@ export function hasWallChildOverlap(
   const newTop = clampedY + halfH
   const newLeft = clampedX - halfW
   const newRight = clampedX + halfW
+  const removalSet =
+    pendingRemovalIds instanceof Set
+      ? pendingRemovalIds
+      : Array.isArray(pendingRemovalIds)
+        ? new Set(pendingRemovalIds)
+        : null
 
   for (const childId of Array.isArray(wallNode.children) ? wallNode.children : []) {
     if (childId === ignoreId) continue
-    // Skip nodes pending removal in the same batch (remove+add mixed batch)
-    if (ignoreIds?.has(childId)) continue
+    if (removalSet?.has(childId)) continue
     const child = nodes[childId as AnyNodeId]
     if (!child) continue
-    // Skip nodes pending ghost removal (soft-deleted in current preview round)
-    if ((child.metadata as Record<string, unknown> | undefined)?.isGhostRemoval) continue
 
     let childLeft: number, childRight: number, childBottom: number, childTop: number
 

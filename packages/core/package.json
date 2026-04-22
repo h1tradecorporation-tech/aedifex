@@ -1,7 +1,7 @@
 {
   "name": "@aedifex/core",
-  "version": "0.5.0",
-  "description": "Core library for Aedifex 3D building editor",
+  "version": "0.6.0",
+  "description": "Core library for Pascal 3D building editor",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -30,7 +30,7 @@
     "@react-three/drei": "^10",
     "@react-three/fiber": "^9",
     "react": "^18 || ^19",
-    "three": "^0.182"
+    "three": "^0.184"
   },
   "dependencies": {
     "dedent": "^1.7.1",
@@ -44,10 +44,10 @@
     "zustand": "^5"
   },
   "devDependencies": {
-    "@aedifex/typescript-config": "workspace:*",
+    "@pascal/typescript-config": "*",
     "@types/react": "^19.2.2",
     "typescript": "5.9.3",
-    "@types/three": "^0.183.0"
+    "@types/three": "^0.184.0"
   },
   "keywords": [
     "3d",
@@ -59,10 +59,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/aedifex-app/editor.git",
+    "url": "https://github.com/pascalorg/editor.git",
     "directory": "packages/core"
   },
   "license": "MIT",
-  "homepage": "https://github.com/aedifex-app/editor/tree/main/packages/core#readme",
-  "bugs": "https://github.com/aedifex-app/editor/issues"
+  "homepage": "https://github.com/pascalorg/editor/tree/main/packages/core#readme",
+  "bugs": "https://github.com/pascalorg/editor/issues"
 }

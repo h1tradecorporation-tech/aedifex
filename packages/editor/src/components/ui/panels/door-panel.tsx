@@ -25,17 +25,17 @@ import { PanelWrapper } from './panel-wrapper'
 import { PresetsPopover } from './presets/presets-popover'
 
 export function DoorPanel() {
-  const selectedIds = useViewer((s) => s.selection.selectedIds)
+  const selectedId = useViewer((s) => s.selection.selectedIds[0])
   const setSelection = useViewer((s) => s.setSelection)
-  const nodes = useScene((s) => s.nodes)
   const updateNode = useScene((s) => s.updateNode)
   const deleteNode = useScene((s) => s.deleteNode)
   const setMovingNode = useEditor((s) => s.setMovingNode)
 
   const adapter = usePresetsAdapter()
 
-  const selectedId = selectedIds[0]
-  const node = selectedId ? (nodes[selectedId as AnyNode['id']] as DoorNode | undefined) : undefined
+  const node = useScene((s) =>
+    selectedId ? (s.nodes[selectedId as AnyNode['id']] as DoorNode | undefined) : undefined,
+  )
 
   const handleUpdate = useCallback(
     (updates: Partial<DoorNode>) => {
@@ -107,7 +107,7 @@ export function DoorPanel() {
       if (i === neighborIdx) return neighborVal
       return v
     })
-    const updated = node?.segments.map((s, idx) => ({ ...s, heightRatio: newRatios[idx]! }))
+    const updated = node.segments.map((s, idx) => ({ ...s, heightRatio: newRatios[idx]! }))
     handleUpdate({ segments: updated })
   }
 
@@ -183,7 +183,7 @@ export function DoorPanel() {
     [handleUpdate],
   )
 
-  if (!node || node.type !== 'door' || selectedIds.length !== 1) return null
+  if (!(node && node.type === 'door' && selectedId)) return null
 
   const hSum = node.segments.reduce((s, seg) => s + seg.heightRatio, 0)
   const normHeights = node.segments.map((seg) => seg.heightRatio / hSum)
@@ -198,12 +198,15 @@ export function DoorPanel() {
       {/* Presets strip */}
       <div className="border-border/30 border-b px-3 pt-2.5 pb-1.5">
         <PresetsPopover
+          isAuthenticated={adapter.isAuthenticated}
           onApply={handleApplyPreset}
           onDelete={(id) => adapter.deletePreset(id)}
-          onFetchPresets={() => adapter.fetchPresets('door')}
+          onFetchPresets={(tab) => adapter.fetchPresets('door', tab)}
           onOverwrite={handleOverwritePreset}
           onRename={(id, name) => adapter.renamePreset(id, name)}
           onSave={handleSavePreset}
+          onToggleCommunity={adapter.togglePresetCommunity}
+          tabs={adapter.tabs}
           type="door"
         >
           <button className="flex w-full items-center gap-2 rounded-lg border border-border/50 bg-[#2C2C2E] px-3 py-2 font-medium text-muted-foreground text-xs transition-colors hover:bg-[#3e3e3e] hover:text-foreground">

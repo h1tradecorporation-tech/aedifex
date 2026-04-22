@@ -1,6 +1,6 @@
 import { type SiteNode, type SlabNode, useRegistry, useScene } from '@aedifex/core'
 import polygonClipping from 'polygon-clipping'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { BufferGeometry, Float32BufferAttribute, type Group, Path, Shape } from 'three'
 import { useNodeEvents } from '../../../hooks/use-node-events'
 import useViewer from '../../../store/use-viewer'
@@ -55,7 +55,16 @@ export const SiteRenderer = ({ node }: { node: SiteNode }) => {
     })
 
     const next = nodeList
-      .filter((n): n is SlabNode => n.type === 'slab' && n.visible && n.polygon.length >= 3)
+      .filter(
+        (n): n is SlabNode =>
+          n.type === 'slab' &&
+          n.visible &&
+          n.polygon.length >= 3 &&
+          // Only recessed slabs should punch through the site ground.
+          // Positive slabs are real floor geometry and should not create a
+          // ghost footprint in the background ground fill.
+          (n.elevation ?? 0.05) < 0,
+      )
       .filter((n) => {
         if (!Number.isFinite(lowestLevelIndex)) return true
         const parentLevel = n.parentId ? levelIndexById.get(n.parentId as string) : undefined
@@ -102,17 +111,11 @@ export const SiteRenderer = ({ node }: { node: SiteNode }) => {
     return shape
   }, [node?.polygon?.points, slabPolygons])
 
-  // Create boundary line geometry (dispose previous on change)
+  // Create boundary line geometry
   const lineGeometry = useMemo(() => {
     if (!node?.polygon?.points || node.polygon.points.length < 2) return null
     return createBoundaryLineGeometry(node.polygon.points)
   }, [node?.polygon?.points])
-
-  useEffect(() => {
-    return () => {
-      lineGeometry?.dispose()
-    }
-  }, [lineGeometry])
 
   const handlers = useNodeEvents(node, 'site')
 

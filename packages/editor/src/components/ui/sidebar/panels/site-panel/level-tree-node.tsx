@@ -1,7 +1,7 @@
 import { type AnyNodeId, type LevelNode, useScene } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
 import { Layers } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { InlineRenameInput } from './inline-rename-input'
 import { focusTreeNode, TreeNode, TreeNodeWrapper } from './tree-node'
@@ -13,7 +13,11 @@ interface LevelTreeNodeProps {
   isLast?: boolean
 }
 
-export function LevelTreeNode({ nodeId, depth, isLast }: LevelTreeNodeProps) {
+export const LevelTreeNode = memo(function LevelTreeNode({
+  nodeId,
+  depth,
+  isLast,
+}: LevelTreeNodeProps) {
   const [expanded, setExpanded] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const isVisible = useScene((s) => s.nodes[nodeId]?.visible !== false)
@@ -25,7 +29,10 @@ export function LevelTreeNode({ nodeId, depth, isLast }: LevelTreeNodeProps) {
   const isHovered = useViewer((state) => state.hoveredId === nodeId)
   const setSelection = useViewer((state) => state.setSelection)
 
-  const handleClick = useCallback(() => setSelection({ levelId: nodeId as LevelNode['id'] }), [nodeId, setSelection])
+  const handleClick = useCallback(
+    () => setSelection({ levelId: nodeId as LevelNode['id'] }),
+    [nodeId, setSelection],
+  )
   const handleDoubleClick = useCallback(() => focusTreeNode(nodeId), [nodeId])
   const handleToggle = useCallback(() => setExpanded((prev) => !prev), [])
   const handleStartEditing = useCallback(() => setIsEditing(true), [])
@@ -67,4 +74,4 @@ export function LevelTreeNode({ nodeId, depth, isLast }: LevelTreeNodeProps) {
       ))}
     </TreeNodeWrapper>
   )
-}
+})

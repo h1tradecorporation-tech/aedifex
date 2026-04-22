@@ -95,9 +95,12 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
         const node = nodes[op.nodeId]
         if (node) {
           originalNodeStates.set(op.nodeId, { ...node })
+          const ghostMeta = buildGhostMetadata(node.metadata, { isGhostPreview: true })
           useScene.getState().updateNode(op.nodeId, {
             metadata: {
-              ...buildGhostMetadata(node.metadata, { isGhostPreview: true }),
+              ...(typeof ghostMeta === 'object' && ghostMeta !== null && !Array.isArray(ghostMeta)
+                ? ghostMeta
+                : {}),
               previewMaterial: op.material,
             },
           })

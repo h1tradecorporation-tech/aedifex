@@ -3,39 +3,51 @@
 import {
   type AnyNode,
   type AnyNodeId,
-  type FenceBaseStyle,
   type FenceNode,
-  type FenceStyle,
+  getClampedWallCurveOffset,
+  getMaxWallCurveOffset,
+  getWallCurveLength,
   type MaterialSchema,
+  normalizeWallCurveOffset,
   useScene,
 } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
+import { Move, Spline } from 'lucide-react'
 import { useCallback } from 'react'
+import { sfxEmitter } from '../../../lib/sfx-bus'
+import useEditor from '../../../store/use-editor'
+import { ActionButton, ActionGroup } from '../controls/action-button'
 import { MaterialPicker } from '../controls/material-picker'
 import { PanelSection } from '../controls/panel-section'
 import { SegmentedControl } from '../controls/segmented-control'
 import { SliderControl } from '../controls/slider-control'
 import { PanelWrapper } from './panel-wrapper'
 
-const FENCE_STYLE_OPTIONS: { label: string; value: FenceStyle }[] = [
+type FenceStyleValue = 'slat' | 'rail' | 'privacy'
+type FenceBaseStyleValue = 'grounded' | 'floating'
+
+const FENCE_STYLE_OPTIONS: { label: string; value: FenceStyleValue }[] = [
   { label: 'Slat', value: 'slat' },
   { label: 'Rail', value: 'rail' },
   { label: 'Privacy', value: 'privacy' },
 ]
 
-const FENCE_BASE_STYLE_OPTIONS: { label: string; value: FenceBaseStyle }[] = [
+const FENCE_BASE_STYLE_OPTIONS: { label: string; value: FenceBaseStyleValue }[] = [
   { label: 'Grounded', value: 'grounded' },
   { label: 'Floating', value: 'floating' },
 ]
 
 export function FencePanel() {
-  const selectedIds = useViewer((s) => s.selection.selectedIds)
+  const selectedId = useViewer((s) => s.selection.selectedIds[0])
+  const selectedCount = useViewer((s) => s.selection.selectedIds.length)
   const setSelection = useViewer((s) => s.setSelection)
-  const nodes = useScene((s) => s.nodes)
   const updateNode = useScene((s) => s.updateNode)
+  const setMovingNode = useEditor((s) => s.setMovingNode)
+  const setCurvingFence = useEditor((s) => s.setCurvingFence)
 
-  const selectedId = selectedIds[0]
-  const node = selectedId ? (nodes[selectedId as AnyNode['id']] as FenceNode | undefined) : undefined
+  const node = useScene((s) =>
+    selectedId ? (s.nodes[selectedId as AnyNode['id']] as FenceNode | undefined) : undefined,
+  )
 
   const handleUpdate = useCallback(
     (updates: Partial<FenceNode>) => {
@@ -71,6 +83,20 @@ export function FencePanel() {
     setSelection({ selectedIds: [] })
   }, [setSelection])
 
+  const handleMove = useCallback(() => {
+    if (!node) return
+    sfxEmitter.emit('sfx:item-pick')
+    setMovingNode(node)
+    setSelection({ selectedIds: [] })
+  }, [node, setMovingNode, setSelection])
+
+  const handleCurve = useCallback(() => {
+    if (!node) return
+    sfxEmitter.emit('sfx:item-pick')
+    setCurvingFence(node)
+    setSelection({ selectedIds: [] })
+  }, [node, setCurvingFence, setSelection])
+
   const handleMaterialPresetChange = useCallback(
     (materialPreset: string) => {
       handleUpdate({ materialPreset, material: undefined })
@@ -85,14 +111,19 @@ export function FencePanel() {
     [handleUpdate],
   )
 
-  if (!node || node.type !== 'fence' || selectedIds.length !== 1) return null
+  if (!(node && node.type === 'fence' && selectedId && selectedCount === 1)) return null
 
-  const dx = node.end[0] - node.start[0]
-  const dz = node.end[1] - node.start[1]
-  const length = Math.sqrt(dx * dx + dz * dz)
+  const length = getWallCurveLength(node)
+  const curveOffset = getClampedWallCurveOffset(node)
+  const maxCurveOffset = getMaxWallCurveOffset(node)
 
   return (
-    <PanelWrapper icon="/icons/build.png" onClose={handleClose} title={node.name || 'Fence'} width={300}>
+    <PanelWrapper
+      icon="/icons/build.png"
+      onClose={handleClose}
+      title={node.name || 'Fence'}
+      width={300}
+    >
       <PanelSection title="Style">
         <SegmentedControl
           onChange={(value) => handleUpdate({ style: value })}
@@ -117,6 +148,16 @@ export function FencePanel() {
           step={0.01}
           unit="m"
           value={length}
+        />
+        <SliderControl
+          label="Curve"
+          max={Math.max(0.01, maxCurveOffset)}
+          min={-Math.max(0.01, maxCurveOffset)}
+          onChange={(value) => handleUpdate({ curveOffset: normalizeWallCurveOffset(node, value) })}
+          precision={2}
+          step={0.1}
+          unit="m"
+          value={Math.round(curveOffset * 100) / 100}
         />
         <SliderControl
           label="Height"
@@ -211,6 +252,17 @@ export function FencePanel() {
           selectedMaterialPreset={node.materialPreset}
           value={node.material}
         />
+      </PanelSection>
+
+      <PanelSection title="Actions">
+        <ActionGroup>
+          <ActionButton icon={<Move className="h-3.5 w-3.5" />} label="Move" onClick={handleMove} />
+          <ActionButton
+            icon={<Spline className="h-3.5 w-3.5" />}
+            label="Curve"
+            onClick={handleCurve}
+          />
+        </ActionGroup>
       </PanelSection>
     </PanelWrapper>
   )

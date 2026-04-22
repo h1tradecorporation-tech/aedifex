@@ -310,23 +310,6 @@ export function SettingsPanel({
         </div>
       )}
 
-      {/* Display Section (for local/no-project mode) */}
-      {(!projectId || isLocalProject) && (
-        <div className="space-y-3">
-          <label className="font-medium text-muted-foreground text-xs uppercase">Display</label>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium text-sm">Show Grid</div>
-              <div className="text-muted-foreground text-xs">Visible only in the editor</div>
-            </div>
-            <Switch
-              checked={showGrid}
-              onCheckedChange={(checked) => useViewer.getState().setShowGrid(checked)}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Export Section */}
       <div className="space-y-2">
         <label className="font-medium text-muted-foreground text-xs uppercase">Export</label>

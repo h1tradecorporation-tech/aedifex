@@ -8,66 +8,288 @@ import type { Collection, CollectionId } from '../schema/collections'
 import { generateCollectionId } from '../schema/collections'
 import { LevelNode } from '../schema/nodes/level'
 import { SiteNode } from '../schema/nodes/site'
+import { StairNode as StairNodeSchema } from '../schema/nodes/stair'
+import { StairSegmentNode as StairSegmentNodeSchema } from '../schema/nodes/stair-segment'
 import type { AnyNode, AnyNodeId } from '../schema/types'
+import { resetSceneHistoryPauseDepth } from './history-control'
 import * as nodeActions from './actions/node-actions'
 
-// ============================================================================
-// Schema Version & Migration Framework
-// ============================================================================
-
-/**
- * Current schema version. Increment when node structure changes.
- * Migration functions run sequentially: v1→v2→v3...
- */
-export const CURRENT_SCHEMA_VERSION = 1
-
-/** Versioned scene data format for persistence (DB, file export, localStorage) */
-export type VersionedSceneData = {
-  schemaVersion: number
-  nodes: Record<string, unknown>
-  rootNodeIds: string[]
+function getFiniteNumber(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
-type MigrationFn = (nodes: Record<string, any>) => Record<string, any>
+function getBoolean(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
 
-/**
- * Registry of migration functions. Key = target version.
- * Each function transforms nodes from (version - 1) to (version).
- * Add new migrations here when schema changes:
- *   SCHEMA_MIGRATIONS.set(2, migrateV1ToV2)
- */
-const SCHEMA_MIGRATIONS = new Map<number, MigrationFn>()
+function getEnumValue<T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  fallback: T[number],
+): T[number] {
+  return typeof value === 'string' && allowed.includes(value) ? value : fallback
+}
 
-/**
- * Run all necessary migrations from sourceVersion to CURRENT_SCHEMA_VERSION.
- * Pure function: returns a new nodes record without mutating input.
- */
-function runSchemaMigrations(
-  nodes: Record<string, any>,
-  fromVersion: number,
-): Record<string, any> {
-  let result = nodes
-  for (let v = fromVersion + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
-    const migrateFn = SCHEMA_MIGRATIONS.get(v)
-    if (migrateFn) {
-      result = migrateFn(result)
+function getNullableString(value: unknown) {
+  return typeof value === 'string' ? value : null
+}
+
+function getStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : []
+}
+
+function getVector3(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  if (!Array.isArray(value) || value.length < 3) {
+    return fallback
+  }
+
+  return [
+    getFiniteNumber(value[0], fallback[0]),
+    getFiniteNumber(value[1], fallback[1]),
+    getFiniteNumber(value[2], fallback[2]),
+  ]
+}
+
+function normalizeStairNode(node: Record<string, unknown>) {
+  const sanitized = {
+    ...node,
+    position: getVector3(node.position, [0, 0, 0]),
+    rotation: getFiniteNumber(node.rotation, 0),
+    stairType: getEnumValue(node.stairType, ['straight', 'curved', 'spiral'] as const, 'straight'),
+    fromLevelId: getNullableString(node.fromLevelId),
+    toLevelId: getNullableString(node.toLevelId),
+    slabOpeningMode: getEnumValue(node.slabOpeningMode, ['none', 'destination'] as const, 'none'),
+    openingOffset: getFiniteNumber(node.openingOffset, 0),
+    width: getFiniteNumber(node.width, 1),
+    totalRise: getFiniteNumber(node.totalRise, 2.5),
+    stepCount: getFiniteNumber(node.stepCount, 10),
+    thickness: getFiniteNumber(node.thickness, 0.25),
+    fillToFloor: getBoolean(node.fillToFloor, true),
+    innerRadius: getFiniteNumber(node.innerRadius, 0.9),
+    sweepAngle: getFiniteNumber(node.sweepAngle, Math.PI / 2),
+    topLandingMode: getEnumValue(node.topLandingMode, ['none', 'integrated'] as const, 'none'),
+    topLandingDepth: getFiniteNumber(node.topLandingDepth, 0.9),
+    showCenterColumn: getBoolean(node.showCenterColumn, true),
+    showStepSupports: getBoolean(node.showStepSupports, true),
+    railingMode: getEnumValue(node.railingMode, ['none', 'left', 'right', 'both'] as const, 'none'),
+    railingHeight: getFiniteNumber(node.railingHeight, 0.92),
+    children: getStringArray(node.children),
+  }
+
+  const parsed = StairNodeSchema.safeParse(sanitized)
+  return parsed.success ? parsed.data : null
+}
+
+function normalizeStairSegmentNode(node: Record<string, unknown>) {
+  const sanitized = {
+    ...node,
+    position: getVector3(node.position, [0, 0, 0]),
+    rotation: getFiniteNumber(node.rotation, 0),
+    segmentType: getEnumValue(node.segmentType, ['stair', 'landing'] as const, 'stair'),
+    width: getFiniteNumber(node.width, 1),
+    length: getFiniteNumber(node.length, 3),
+    height: getFiniteNumber(node.height, 2.5),
+    stepCount: getFiniteNumber(node.stepCount, 10),
+    attachmentSide: getEnumValue(node.attachmentSide, ['front', 'left', 'right'] as const, 'front'),
+    fillToFloor: getBoolean(node.fillToFloor, true),
+    thickness: getFiniteNumber(node.thickness, 0.25),
+  }
+
+  const parsed = StairSegmentNodeSchema.safeParse(sanitized)
+  return parsed.success ? parsed.data : null
+}
+
+function migrateWallSurfaceMaterials(node: Record<string, any>) {
+  const hasInterior =
+    node.interiorMaterial !== undefined || typeof node.interiorMaterialPreset === 'string'
+  const hasExterior =
+    node.exteriorMaterial !== undefined || typeof node.exteriorMaterialPreset === 'string'
+  const legacyFinish = {
+    material: node.material,
+    materialPreset: typeof node.materialPreset === 'string' ? node.materialPreset : undefined,
+  }
+
+  if (!hasInterior && !hasExterior) {
+    if (legacyFinish.material === undefined && legacyFinish.materialPreset === undefined) {
+      return node
+    }
+
+    return {
+      ...node,
+      interiorMaterial: legacyFinish.material,
+      interiorMaterialPreset: legacyFinish.materialPreset,
+      exteriorMaterial: legacyFinish.material,
+      exteriorMaterialPreset: legacyFinish.materialPreset,
     }
   }
-  return result
+
+  if (!hasInterior) {
+    return {
+      ...node,
+      interiorMaterial: node.exteriorMaterial,
+      interiorMaterialPreset: node.exteriorMaterialPreset,
+    }
+  }
+
+  if (!hasExterior) {
+    return {
+      ...node,
+      exteriorMaterial: node.interiorMaterial,
+      exteriorMaterialPreset: node.interiorMaterialPreset,
+    }
+  }
+
+  return node
 }
 
-/**
- * Legacy per-node patches that run regardless of schema version.
- * These handle data saved before the schemaVersion system existed.
- */
+function migrateStairSurfaceMaterials(node: Record<string, any>) {
+  const hasRailing =
+    node.railingMaterial !== undefined || typeof node.railingMaterialPreset === 'string'
+  const hasTread = node.treadMaterial !== undefined || typeof node.treadMaterialPreset === 'string'
+  const hasSide = node.sideMaterial !== undefined || typeof node.sideMaterialPreset === 'string'
+  const legacyFinish = {
+    material: node.material,
+    materialPreset: typeof node.materialPreset === 'string' ? node.materialPreset : undefined,
+  }
+
+  const resolveBodyFallback = () => {
+    if (node.treadMaterial !== undefined || typeof node.treadMaterialPreset === 'string') {
+      return {
+        material: node.treadMaterial,
+        materialPreset: typeof node.treadMaterialPreset === 'string' ? node.treadMaterialPreset : undefined,
+      }
+    }
+
+    if (node.sideMaterial !== undefined || typeof node.sideMaterialPreset === 'string') {
+      return {
+        material: node.sideMaterial,
+        materialPreset: typeof node.sideMaterialPreset === 'string' ? node.sideMaterialPreset : undefined,
+      }
+    }
+
+    return legacyFinish
+  }
+
+  if (!hasRailing && !hasTread && !hasSide) {
+    if (legacyFinish.material === undefined && legacyFinish.materialPreset === undefined) {
+      return node
+    }
+
+    return {
+      ...node,
+      railingMaterial: legacyFinish.material,
+      railingMaterialPreset: legacyFinish.materialPreset,
+      treadMaterial: legacyFinish.material,
+      treadMaterialPreset: legacyFinish.materialPreset,
+      sideMaterial: legacyFinish.material,
+      sideMaterialPreset: legacyFinish.materialPreset,
+    }
+  }
+
+  const next = { ...node }
+
+  if (!hasTread) {
+    const fallback =
+      node.sideMaterial !== undefined || typeof node.sideMaterialPreset === 'string'
+        ? {
+            material: node.sideMaterial,
+            materialPreset:
+              typeof node.sideMaterialPreset === 'string' ? node.sideMaterialPreset : undefined,
+          }
+        : resolveBodyFallback()
+    next.treadMaterial = fallback.material
+    next.treadMaterialPreset = fallback.materialPreset
+  }
+
+  if (!hasSide) {
+    const fallback =
+      node.treadMaterial !== undefined || typeof node.treadMaterialPreset === 'string'
+        ? {
+            material: node.treadMaterial,
+            materialPreset:
+              typeof node.treadMaterialPreset === 'string' ? node.treadMaterialPreset : undefined,
+          }
+        : resolveBodyFallback()
+    next.sideMaterial = fallback.material
+    next.sideMaterialPreset = fallback.materialPreset
+  }
+
+  if (!hasRailing) {
+    const fallback = resolveBodyFallback()
+    next.railingMaterial = fallback.material
+    next.railingMaterialPreset = fallback.materialPreset
+  }
+
+  return next
+}
+
+function migrateRoofSurfaceMaterials(node: Record<string, any>) {
+  const hasTop = node.topMaterial !== undefined || typeof node.topMaterialPreset === 'string'
+  const hasEdge = node.edgeMaterial !== undefined || typeof node.edgeMaterialPreset === 'string'
+  const hasWall = node.wallMaterial !== undefined || typeof node.wallMaterialPreset === 'string'
+  const legacyFinish = {
+    material: node.material,
+    materialPreset: typeof node.materialPreset === 'string' ? node.materialPreset : undefined,
+  }
+
+  if (!hasTop && !hasEdge && !hasWall) {
+    if (legacyFinish.material === undefined && legacyFinish.materialPreset === undefined) {
+      return node
+    }
+
+    return {
+      ...node,
+      topMaterial: legacyFinish.material,
+      topMaterialPreset: legacyFinish.materialPreset,
+      edgeMaterial: legacyFinish.material,
+      edgeMaterialPreset: legacyFinish.materialPreset,
+      wallMaterial: legacyFinish.material,
+      wallMaterialPreset: legacyFinish.materialPreset,
+    }
+  }
+
+  const next = { ...node }
+
+  if (!hasTop) {
+    next.topMaterial = legacyFinish.material
+    next.topMaterialPreset = legacyFinish.materialPreset
+  }
+
+  if (!hasEdge) {
+    if (node.wallMaterial !== undefined || typeof node.wallMaterialPreset === 'string') {
+      next.edgeMaterial = node.wallMaterial
+      next.edgeMaterialPreset =
+        typeof node.wallMaterialPreset === 'string' ? node.wallMaterialPreset : undefined
+    } else {
+      next.edgeMaterial = legacyFinish.material
+      next.edgeMaterialPreset = legacyFinish.materialPreset
+    }
+  }
+
+  if (!hasWall) {
+    if (node.edgeMaterial !== undefined || typeof node.edgeMaterialPreset === 'string') {
+      next.wallMaterial = node.edgeMaterial
+      next.wallMaterialPreset =
+        typeof node.edgeMaterialPreset === 'string' ? node.edgeMaterialPreset : undefined
+    } else {
+      next.wallMaterial = legacyFinish.material
+      next.wallMaterialPreset = legacyFinish.materialPreset
+    }
+  }
+
+  return next
+}
+
 function migrateNodes(nodes: Record<string, any>): Record<string, AnyNode> {
   const patchedNodes = { ...nodes }
   for (const [id, node] of Object.entries(patchedNodes)) {
-    // 1. Item scale migration (pre-schemaVersion era)
+    // 1. Item scale migration
     if (node.type === 'item' && !('scale' in node)) {
       patchedNodes[id] = { ...node, scale: [1, 1, 1] }
     }
-    // 2. Old roof to new roof + segment migration (pre-schemaVersion era)
+    // 2. Old roof to new roof + segment migration
     if (node.type === 'roof' && !('children' in node)) {
       const oldRoof = node
       const suffix = id.includes('_') ? id.split('_')[1] : Math.random().toString(36).slice(2)
@@ -99,45 +321,30 @@ function migrateNodes(nodes: Record<string, any>): Record<string, AnyNode> {
         children: [segmentId],
       }
     }
+
+    if (node.type === 'stair') {
+      const normalized = normalizeStairNode(migrateStairSurfaceMaterials(node))
+      if (normalized) {
+        patchedNodes[id] = normalized
+      }
+    }
+
+    if (node.type === 'stair-segment') {
+      const normalized = normalizeStairSegmentNode(node)
+      if (normalized) {
+        patchedNodes[id] = normalized
+      }
+    }
+
+    if (node.type === 'wall') {
+      patchedNodes[id] = migrateWallSurfaceMaterials(patchedNodes[id])
+    }
+
+    if (node.type === 'roof') {
+      patchedNodes[id] = migrateRoofSurfaceMaterials(patchedNodes[id])
+    }
   }
   return patchedNodes as Record<string, AnyNode>
-}
-
-/**
- * Parse scene data from any source (DB, localStorage, file import).
- * Handles both versioned format and legacy bare { nodes, rootNodeIds }.
- */
-export function parseSceneData(raw: Record<string, any>): {
-  nodes: Record<string, AnyNode>
-  rootNodeIds: string[]
-} {
-  const version = typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 0
-  const nodes = raw.nodes ?? {}
-  const rootNodeIds = raw.rootNodeIds ?? []
-
-  // 1. Run versioned schema migrations (v0 = legacy, no schemaVersion field)
-  const migrated = version < CURRENT_SCHEMA_VERSION
-    ? runSchemaMigrations(nodes, version)
-    : nodes
-
-  // 2. Run legacy per-node patches (always, for safety)
-  const patched = migrateNodes(migrated)
-
-  return { nodes: patched, rootNodeIds }
-}
-
-/**
- * Serialize current scene state into the versioned format for persistence.
- */
-export function serializeSceneData(
-  nodes: Record<AnyNodeId, AnyNode>,
-  rootNodeIds: AnyNodeId[],
-): VersionedSceneData {
-  return {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    nodes,
-    rootNodeIds,
-  }
 }
 
 export type SceneState = {
@@ -153,10 +360,7 @@ export type SceneState = {
   // 4. Relational metadata — not nodes
   collections: Record<CollectionId, Collection>
 
-  // 5. Monotonic counter incremented on every node mutation (used for O(1) change detection)
-  nodesVersion: number
-
-  // 6. Read-only lock — when true all create/update/delete operations are no-ops
+  // 5. Read-only lock — when true all create/update/delete operations are no-ops
   readOnly: boolean
   setReadOnly: (readOnly: boolean) => void
 
@@ -207,10 +411,7 @@ const useScene: UseSceneStore = create<SceneState>()(
       // 4. Collections
       collections: {} as Record<CollectionId, Collection>,
 
-      // 5. Monotonic version counter for O(1) change detection
-      nodesVersion: 0,
-
-      // 6. Read-only lock
+      // 5. Read-only lock
       readOnly: false,
       setReadOnly: (readOnly: boolean) => set({ readOnly }),
 
@@ -220,12 +421,7 @@ const useScene: UseSceneStore = create<SceneState>()(
           rootNodeIds: [],
           dirtyNodes: new Set<AnyNodeId>(),
           collections: {},
-          nodesVersion: get().nodesVersion + 1,
         })
-        // Clear temporal tracking to prevent memory leaks from stale node references
-        prevPastLength = 0
-        prevFutureLength = 0
-        prevNodesSnapshot = null
       },
 
       clearScene: () => {
@@ -234,11 +430,11 @@ const useScene: UseSceneStore = create<SceneState>()(
       },
 
       setScene: (nodes, rootNodeIds) => {
-        // Apply backward compatibility migrations + schema version migrations
-        const parsed = parseSceneData({ nodes, rootNodeIds })
+        // Apply backward compatibility migrations
+        const patchedNodes = migrateNodes(nodes)
 
         // Remove orphans: nodes whose parentId points to a non-existent node
-        const cleanedNodes = { ...parsed.nodes }
+        const cleanedNodes = { ...patchedNodes }
         for (const node of Object.values(cleanedNodes)) {
           if (node.parentId && !cleanedNodes[node.parentId]) {
             console.warn(
@@ -257,7 +453,6 @@ const useScene: UseSceneStore = create<SceneState>()(
           rootNodeIds,
           dirtyNodes: new Set<AnyNodeId>(),
           collections: {},
-          nodesVersion: get().nodesVersion + 1,
         })
         // Mark all nodes as dirty to trigger re-validation
         Object.values(cleanedNodes).forEach((node) => {
@@ -298,7 +493,7 @@ const useScene: UseSceneStore = create<SceneState>()(
         // Site is the root
         const rootNodeIds = [site.id]
 
-        set({ nodes, rootNodeIds, nodesVersion: get().nodesVersion + 1 })
+        set({ nodes, rootNodeIds })
       },
 
       markDirty: (id) => {
@@ -338,7 +533,7 @@ const useScene: UseSceneStore = create<SceneState>()(
               ('collectionIds' in node ? (node.collectionIds as CollectionId[]) : undefined) ?? []
             nextNodes[nodeId] = { ...node, collectionIds: [...existing, id] } as AnyNode
           }
-          return { collections: nextCollections, nodes: nextNodes, nodesVersion: state.nodesVersion + 1 }
+          return { collections: nextCollections, nodes: nextNodes }
         })
         return id
       },
@@ -359,7 +554,7 @@ const useScene: UseSceneStore = create<SceneState>()(
               collectionIds: (node.collectionIds as CollectionId[]).filter((cid) => cid !== id),
             } as AnyNode
           }
-          return { collections: nextCollections, nodes: nextNodes, nodesVersion: state.nodesVersion + 1 }
+          return { collections: nextCollections, nodes: nextNodes }
         })
       },
 
@@ -389,7 +584,7 @@ const useScene: UseSceneStore = create<SceneState>()(
             ...state.nodes,
             [nodeId]: { ...node, collectionIds: [...existing, id] } as AnyNode,
           }
-          return { collections: nextCollections, nodes: nextNodes, nodesVersion: state.nodesVersion + 1 }
+          return { collections: nextCollections, nodes: nextNodes }
         })
       },
 
@@ -411,7 +606,7 @@ const useScene: UseSceneStore = create<SceneState>()(
               collectionIds: (node.collectionIds as CollectionId[]).filter((cid) => cid !== id),
             } as AnyNode,
           }
-          return { collections: nextCollections, nodes: nextNodes, nodesVersion: state.nodesVersion + 1 }
+          return { collections: nextCollections, nodes: nextNodes }
         })
       },
     }),
@@ -434,6 +629,7 @@ let prevNodesSnapshot: Record<AnyNodeId, AnyNode> | null = null
 
 export function clearSceneHistory() {
   useScene.temporal.getState().clear()
+  resetSceneHistoryPauseDepth()
   prevPastLength = 0
   prevFutureLength = 0
   prevNodesSnapshot = null
@@ -453,8 +649,9 @@ useScene.temporal.subscribe((state) => {
     // Capture the previous snapshot before RAF fires
     const snapshotBefore = prevNodesSnapshot
 
-    // Use RAF to ensure all middleware and store updates are complete
-    requestAnimationFrame(() => {
+    // Defer to a microtask so the scene store has settled before we diff,
+    // but still mark walls/items dirty before the next paint.
+    queueMicrotask(() => {
       const currentNodes = useScene.getState().nodes
       const { markDirty } = useScene.getState()
 

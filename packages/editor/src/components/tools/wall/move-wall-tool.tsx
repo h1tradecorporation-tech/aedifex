@@ -1,16 +1,21 @@
 'use client'
 
-import { type AnyNodeId, emitter, type GridEvent, useScene, type WallNode } from '@aedifex/core'
+import {
+  type AnyNodeId,
+  emitter,
+  type GridEvent,
+  pauseSceneHistory,
+  resumeSceneHistory,
+  useScene,
+  type WallNode,
+} from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { markToolCancelConsumed } from '../../../hooks/use-keyboard'
 import { sfxEmitter } from '../../../lib/sfx-bus'
 import useEditor from '../../../store/use-editor'
 import { CursorSphere } from '../shared/cursor-sphere'
-
-function snap(value: number) {
-  return Math.round(value * 2) / 2
-}
+import { getWallGridStep, snapScalarToGrid } from './wall-drafting'
 
 function rotateVector([x, z]: [number, number], angle: number): [number, number] {
   const cos = Math.cos(angle)
@@ -20,6 +25,16 @@ function rotateVector([x, z]: [number, number], angle: number): [number, number]
 
 function samePoint(a: [number, number], b: [number, number]) {
   return a[0] === b[0] && a[1] === b[1]
+}
+
+function stripWallIsNewMetadata(meta: WallNode['metadata']): WallNode['metadata'] {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+    return meta
+  }
+
+  const nextMeta = { ...(meta as Record<string, unknown>) } as Record<string, unknown>
+  delete nextMeta.isNew
+  return nextMeta as WallNode['metadata']
 }
 
 type LinkedWallSnapshot = {
@@ -89,6 +104,11 @@ function getLinkedWallUpdates(
 }
 
 export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
+  const meta =
+    typeof node.metadata === 'object' && node.metadata !== null && !Array.isArray(node.metadata)
+      ? (node.metadata as Record<string, unknown>)
+      : {}
+  const isNew = !!meta.isNew
   const activatedAtRef = useRef<number>(Date.now())
   const previousGridPosRef = useRef<[number, number] | null>(null)
   const originalStartRef = useRef<[number, number]>([...node.start] as [number, number])
@@ -102,12 +122,14 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
     (node.end[1] - node.start[1]) / 2,
   ])
   const linkedOriginalsRef = useRef(
-    getLinkedWallSnapshots({
-      wallId: node.id,
-      wallParentId: node.parentId ?? null,
-      originalStart: node.start,
-      originalEnd: node.end,
-    }),
+    isNew
+      ? []
+      : getLinkedWallSnapshots({
+          wallId: node.id,
+          wallParentId: node.parentId ?? null,
+          originalStart: node.start,
+          originalEnd: node.end,
+        }),
   )
   const dragAnchorRef = useRef<[number, number] | null>(null)
   const nodeIdRef = useRef(node.id)
@@ -132,7 +154,7 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
     const originalCenter = originalCenterRef.current
     const originalHalfVector = originalHalfVectorRef.current
 
-    useScene.temporal.getState().pause()
+    pauseSceneHistory(useScene)
     let wasCommitted = false
 
     const applyNodePreview = (
@@ -183,8 +205,9 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
     const onGridMove = (event: GridEvent) => {
       const rawX = event.localPosition[0]
       const rawZ = event.localPosition[2]
-      const localX = shiftPressedRef.current ? rawX : snap(rawX)
-      const localZ = shiftPressedRef.current ? rawZ : snap(rawZ)
+      const snapStep = getWallGridStep()
+      const localX = shiftPressedRef.current ? rawX : snapScalarToGrid(rawX, snapStep)
+      const localZ = shiftPressedRef.current ? rawZ : snapScalarToGrid(rawZ, snapStep)
 
       if (
         previousGridPosRef.current &&
@@ -214,18 +237,44 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
       const preview = previewRef.current ?? { start: originalStart, end: originalEnd }
 
       wasCommitted = true
-      useScene.temporal.getState().resume()
+
+      // Restore original baseline while paused so the next resume+update
+      // registers as a single tracked change (undo reverts to original).
       applyNodePreview([
-        { id: nodeId, start: preview.start, end: preview.end },
+        { id: nodeId, start: originalStart, end: originalEnd },
+        ...linkedOriginalsRef.current,
+      ])
+
+      resumeSceneHistory(useScene)
+
+      const commitUpdates = [
+        {
+          id: nodeId as AnyNodeId,
+          data: isNew
+            ? {
+                start: preview.start,
+                end: preview.end,
+                metadata: stripWallIsNewMetadata(node.metadata),
+              }
+            : { start: preview.start, end: preview.end },
+        },
         ...getLinkedWallUpdates(
           linkedOriginalsRef.current,
           originalStart,
           originalEnd,
           preview.start,
           preview.end,
-        ),
-      ])
-      useScene.temporal.getState().pause()
+        ).map((entry) => ({
+          id: entry.id as AnyNodeId,
+          data: { start: entry.start, end: entry.end },
+        })),
+      ]
+      useScene.getState().updateNodes(commitUpdates)
+      for (const { id } of commitUpdates) {
+        useScene.getState().markDirty(id)
+      }
+
+      pauseSceneHistory(useScene)
 
       sfxEmitter.emit('sfx:item-place')
       useViewer.getState().setSelection({ selectedIds: [nodeId] })
@@ -274,7 +323,7 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
     const onCancel = () => {
       restoreOriginal()
       useViewer.getState().setSelection({ selectedIds: [nodeId] })
-      useScene.temporal.getState().resume()
+      resumeSceneHistory(useScene)
       markToolCancelConsumed()
       exitMoveMode()
     }
@@ -290,14 +339,14 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
         restoreOriginal()
       }
       shiftPressedRef.current = false
-      useScene.temporal.getState().resume()
+      resumeSceneHistory(useScene)
       emitter.off('grid:move', onGridMove)
       emitter.off('grid:click', onGridClick)
       emitter.off('tool:cancel', onCancel)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [exitMoveMode])
+  }, [exitMoveMode, isNew, node.metadata])
 
   return (
     <group>

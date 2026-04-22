@@ -11,7 +11,9 @@ import { CeilingBoundaryEditor } from './ceiling/ceiling-boundary-editor'
 import { CeilingHoleEditor } from './ceiling/ceiling-hole-editor'
 import { CeilingTool } from './ceiling/ceiling-tool'
 import { DoorTool } from './door/door-tool'
+import { CurveFenceTool } from './fence/curve-fence-tool'
 import { FenceTool } from './fence/fence-tool'
+import { MoveFenceEndpointTool } from './fence/move-fence-endpoint-tool'
 import { ItemTool } from './item/item-tool'
 import { MoveTool } from './item/move-tool'
 import { RoofTool } from './roof/roof-tool'
@@ -21,6 +23,7 @@ import { SlabHoleEditor } from './slab/slab-hole-editor'
 import { SlabTool } from './slab/slab-tool'
 import { StairTool } from './stair/stair-tool'
 import { CurveWallTool } from './wall/curve-wall-tool'
+import { MoveWallEndpointTool } from './wall/move-wall-endpoint-tool'
 import { WallTool } from './wall/wall-tool'
 import { WindowTool } from './window/window-tool'
 import { ZoneBoundaryEditor } from './zone/zone-boundary-editor'
@@ -52,7 +55,10 @@ export const ToolManager: React.FC = () => {
   const mode = useEditor((state) => state.mode)
   const tool = useEditor((state) => state.tool)
   const movingNode = useEditor((state) => state.movingNode)
+  const movingWallEndpoint = useEditor((state) => state.movingWallEndpoint)
+  const movingFenceEndpoint = useEditor((state) => state.movingFenceEndpoint)
   const curvingWall = useEditor((state) => state.curvingWall)
+  const curvingFence = useEditor((state) => state.curvingFence)
   const editingHole = useEditor((state) => state.editingHole)
   const selectedZoneId = useViewer((state) => state.selection.zoneId)
   const buildingId = useViewer((state) => state.selection.buildingId)
@@ -142,7 +148,10 @@ export const ToolManager: React.FC = () => {
         {showCeilingHoleEditor && selectedCeilingId && editingHole && (
           <CeilingHoleEditor ceilingId={selectedCeilingId} holeIndex={editingHole.holeIndex} />
         )}
+        {movingWallEndpoint && <MoveWallEndpointTool target={movingWallEndpoint} />}
+        {movingFenceEndpoint && <MoveFenceEndpointTool target={movingFenceEndpoint} />}
         {curvingWall && <CurveWallTool node={curvingWall} />}
+        {curvingFence && <CurveFenceTool node={curvingFence} />}
         {movingNode && movingNode.type !== 'building' && <MoveTool />}
         {!movingNode && BuildToolComponent && <BuildToolComponent />}
       </group>

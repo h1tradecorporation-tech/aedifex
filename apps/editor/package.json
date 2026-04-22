@@ -1,5 +1,5 @@
 {
-  "name": "@aedifex/app-editor",
+  "name": "editor",
   "version": "0.1.0",
   "type": "module",
   "private": true,
@@ -12,25 +12,25 @@
   },
   "dependencies": {
     "@number-flow/react": "^0.5.14",
-    "@aedifex/core": "workspace:*",
-    "@aedifex/editor": "workspace:*",
-    "@aedifex/viewer": "workspace:*",
+    "@aedifex/core": "*",
+    "@aedifex/editor": "*",
+    "@aedifex/viewer": "*",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@tailwindcss/postcss": "^4.2.1",
     "clsx": "^2.1.1",
     "geist": "^1.7.0",
     "next": "16.2.1",
-    "openai": "^6.33.0",
+    "openai": "^4.77.0",
     "postcss": "^8.5.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "three": "^0.183.1"
+    "three": "^0.184.0"
   },
   "devDependencies": {
-    "@aedifex/typescript-config": "workspace:*",
+    "@pascal/typescript-config": "*",
     "@types/howler": "^2.2.12",
     "@types/node": "^22.19.12",
     "@types/react": "19.2.2",
