@@ -3,6 +3,7 @@ import {
   createNodesAction,
   updateNodesAction,
   deleteNodesAction,
+  setNodeAction,
 } from '../store/actions/node-actions'
 import type { SceneState } from '../store/use-scene'
 import type { AnyNode, AnyNodeId } from '../schema/types'
@@ -119,7 +120,6 @@ function makeStore(initial: Partial<SceneState> = {}): {
     rootNodeIds: [],
     dirtyNodes: new Set(),
     collections: {} as Record<CollectionId, Collection>,
-    nodesVersion: 0,
     readOnly: false,
     setReadOnly: vi.fn(),
     markDirty,
@@ -132,6 +132,7 @@ function makeStore(initial: Partial<SceneState> = {}): {
     createNodes: vi.fn(),
     updateNode: vi.fn(),
     updateNodes: vi.fn(),
+    setNode: vi.fn(),
     deleteNode: vi.fn(),
     deleteNodes: vi.fn(),
     createCollection: vi.fn(),
@@ -217,14 +218,8 @@ describe('createNodesAction', () => {
     expect(count).toBe(1)
   })
 
-  it('increments nodesVersion', () => {
-    const { state, set, get } = makeStore({ nodesVersion: 5 })
-    const wall = makeWallNode('wall_v')
-
-    createNodesAction(set, get, [{ node: wall }])
-
-    expect(state.nodesVersion).toBe(6)
-  })
+  // Removed: nodesVersion field is no longer part of SceneState — replaced
+  // by direct subscription tracking in zustand selectors.
 
   it('calls markDirty for the new node', () => {
     const { set, get, markDirty } = makeStore()
@@ -282,17 +277,7 @@ describe('updateNodesAction', () => {
     expect(state.nodes['wall_upd' as AnyNodeId]!.name).toBe('Updated Wall')
   })
 
-  it('increments nodesVersion', () => {
-    const wall = makeWallNode('wall_ver')
-    const { state, set, get } = makeStore({
-      nodes: { wall_ver: wall } as Record<AnyNodeId, AnyNode>,
-      nodesVersion: 3,
-    })
-
-    updateNodesAction(set, get, [{ id: 'wall_ver' as AnyNodeId, data: { name: 'v2' } }])
-
-    expect(state.nodesVersion).toBe(4)
-  })
+  // Removed: nodesVersion field no longer exists on SceneState.
 
   it('calls markDirty via RAF for the updated node', () => {
     const wall = makeWallNode('wall_raf')
@@ -430,17 +415,7 @@ describe('deleteNodesAction', () => {
     expect(state.nodes['item_child_cascade' as AnyNodeId]).toBeUndefined()
   })
 
-  it('increments nodesVersion', () => {
-    const wall = makeWallNode('wall_ver_del')
-    const { state, set, get } = makeStore({
-      nodes: { wall_ver_del: wall } as Record<AnyNodeId, AnyNode>,
-      nodesVersion: 10,
-    })
-
-    deleteNodesAction(set, get, ['wall_ver_del' as AnyNodeId])
-
-    expect(state.nodesVersion).toBe(11)
-  })
+  // Removed: nodesVersion field no longer exists on SceneState.
 
   it('removes node from collection nodeIds when deleted', () => {
     const collectionId = 'collection_grp' as CollectionId
@@ -502,5 +477,80 @@ describe('deleteNodesAction', () => {
     deleteNodesAction(set, get, ['wall_mark_dirty' as AnyNodeId])
 
     expect(markDirty).toHaveBeenCalledWith('level_mark_dirty')
+  })
+})
+
+// ============================================================================
+// setNodeAction
+// ============================================================================
+
+describe('setNodeAction', () => {
+  it('replaces the node atomically (full replace, not spread merge)', () => {
+    const original = {
+      ...makeWallNode('wall_set_1'),
+      metadata: { transient: 'flag', extra: 'value' },
+    } as AnyNode
+    const replacement = makeWallNode('wall_set_1')
+    // replacement intentionally has metadata: {} — full-replace must drop the
+    // 'transient' and 'extra' keys present on the original
+    const { state, set, get } = makeStore({
+      nodes: { wall_set_1: original } as Record<AnyNodeId, AnyNode>,
+    })
+
+    setNodeAction(set, get, 'wall_set_1' as AnyNodeId, replacement)
+
+    const stored = state.nodes['wall_set_1' as AnyNodeId]!
+    expect(stored).toBe(replacement)
+    expect((stored.metadata as Record<string, unknown>).transient).toBeUndefined()
+    expect((stored.metadata as Record<string, unknown>).extra).toBeUndefined()
+  })
+
+  it('refuses silent id mismatch (node.id !== id)', () => {
+    const wall = makeWallNode('wall_correct')
+    const wrong = makeWallNode('wall_other')
+    const { state, set, get } = makeStore({
+      nodes: { wall_correct: wall } as Record<AnyNodeId, AnyNode>,
+    })
+
+    setNodeAction(set, get, 'wall_correct' as AnyNodeId, wrong)
+
+    expect(state.nodes['wall_correct' as AnyNodeId]).toBe(wall)
+    expect(state.nodes['wall_other' as AnyNodeId]).toBeUndefined()
+  })
+
+  it('refuses implicit creation when target id is absent', () => {
+    const wall = makeWallNode('wall_new')
+    const { state, set, get, markDirty } = makeStore()
+
+    setNodeAction(set, get, 'wall_new' as AnyNodeId, wall)
+
+    expect(state.nodes['wall_new' as AnyNodeId]).toBeUndefined()
+    expect(markDirty).not.toHaveBeenCalled()
+  })
+
+  it('respects readOnly flag', () => {
+    const original = makeWallNode('wall_ro')
+    const replacement = { ...makeWallNode('wall_ro'), visible: false } as AnyNode
+    const { state, set, get } = makeStore({
+      nodes: { wall_ro: original } as Record<AnyNodeId, AnyNode>,
+      readOnly: true,
+    })
+
+    setNodeAction(set, get, 'wall_ro' as AnyNodeId, replacement)
+
+    expect(state.nodes['wall_ro' as AnyNodeId]).toBe(original)
+  })
+
+  it('calls markDirty synchronously (no RAF batching)', () => {
+    const wall = makeWallNode('wall_dirty')
+    const replacement = makeWallNode('wall_dirty')
+    const { set, get, markDirty } = makeStore({
+      nodes: { wall_dirty: wall } as Record<AnyNodeId, AnyNode>,
+    })
+
+    setNodeAction(set, get, 'wall_dirty' as AnyNodeId, replacement)
+
+    expect(markDirty).toHaveBeenCalledWith('wall_dirty')
+    expect(markDirty).toHaveBeenCalledTimes(1)
   })
 })

@@ -10,11 +10,6 @@ vi.stubGlobal('cancelAnimationFrame', () => {})
 import { WallNode } from '../schema/nodes/wall'
 import { ItemNode } from '../schema/nodes/item'
 import { LevelNode } from '../schema/nodes/level'
-import {
-  CURRENT_SCHEMA_VERSION,
-  parseSceneData,
-  serializeSceneData,
-} from '../store/use-scene'
 import useScene from '../store/use-scene'
 import type { AnyNode, AnyNodeId } from '../schema/types'
 
@@ -50,18 +45,6 @@ function makeLevel(): AnyNode {
 
 beforeEach(() => {
   useScene.getState().unloadScene()
-})
-
-// ============================================================================
-// CURRENT_SCHEMA_VERSION
-// ============================================================================
-
-describe('CURRENT_SCHEMA_VERSION', () => {
-  it('is a positive integer', () => {
-    expect(typeof CURRENT_SCHEMA_VERSION).toBe('number')
-    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(1)
-    expect(Number.isInteger(CURRENT_SCHEMA_VERSION)).toBe(true)
-  })
 })
 
 // ============================================================================
@@ -215,133 +198,11 @@ describe('useScene nodes map (getNode equivalent)', () => {
 // serializeSceneData
 // ============================================================================
 
-describe('serializeSceneData', () => {
-  it('returns versioned format with schemaVersion', () => {
-    const wall = makeWall() as AnyNode & { id: AnyNodeId }
-    const nodes = { [wall.id]: wall } as Record<AnyNodeId, AnyNode>
-    const rootNodeIds = [wall.id]
-
-    const serialized = serializeSceneData(nodes, rootNodeIds)
-
-    expect(serialized.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
-    expect(serialized.nodes).toEqual(nodes)
-    expect(serialized.rootNodeIds).toEqual(rootNodeIds)
-  })
-
-  it('includes all nodes in serialized output', () => {
-    const wall1 = makeWall()
-    const wall2 = makeWall()
-    const nodes = {
-      [wall1.id]: wall1,
-      [wall2.id]: wall2,
-    } as Record<AnyNodeId, AnyNode>
-
-    const serialized = serializeSceneData(nodes, [wall1.id as AnyNodeId])
-    expect(Object.keys(serialized.nodes)).toHaveLength(2)
-  })
-})
-
-// ============================================================================
-// parseSceneData — round-trip serialization
-// ============================================================================
-
-describe('parseSceneData', () => {
-  it('parses versioned scene data correctly', () => {
-    const wall = makeWall() as AnyNode & { id: AnyNodeId }
-    const nodes = { [wall.id]: wall } as Record<AnyNodeId, AnyNode>
-    const rootNodeIds = [wall.id]
-
-    const serialized = serializeSceneData(nodes, rootNodeIds)
-    const parsed = parseSceneData(serialized)
-
-    expect(parsed.nodes[wall.id]).toBeDefined()
-    expect(parsed.rootNodeIds).toContain(wall.id)
-  })
-
-  it('handles legacy format (no schemaVersion)', () => {
-    const wall = makeWall() as AnyNode & { id: AnyNodeId }
-    const legacy = {
-      nodes: { [wall.id]: wall },
-      rootNodeIds: [wall.id],
-    }
-
-    const parsed = parseSceneData(legacy)
-    expect(parsed.nodes[wall.id]).toBeDefined()
-  })
-
-  it('round-trip serialization preserves node data', () => {
-    const wall = makeWall() as AnyNode & { id: AnyNodeId }
-    const nodes = { [wall.id]: wall } as Record<AnyNodeId, AnyNode>
-
-    const serialized = serializeSceneData(nodes, [wall.id])
-    const parsed = parseSceneData(serialized)
-
-    const parsedWall = parsed.nodes[wall.id] as typeof wall
-    expect(parsedWall.type).toBe('wall')
-    expect((parsedWall as any).start).toEqual([0, 0])
-    expect((parsedWall as any).end).toEqual([5, 0])
-  })
-
-  it('applies legacy item scale migration when scale is missing', () => {
-    const itemWithoutScale = {
-      id: 'item_legacy',
-      type: 'item',
-      object: 'node',
-      parentId: null,
-      visible: true,
-      metadata: {},
-      position: [0, 0, 0],
-      rotation: [0, 0, 0],
-      asset: { id: 'sofa', name: 'Sofa', category: 'furniture', thumbnail: '', src: '', dimensions: [1, 1, 1] },
-      // No `scale` field
-    }
-
-    const parsed = parseSceneData({
-      nodes: { item_legacy: itemWithoutScale },
-      rootNodeIds: ['item_legacy'],
-    })
-
-    const migrated = parsed.nodes['item_legacy' as AnyNodeId] as any
-    expect(migrated.scale).toEqual([1, 1, 1])
-  })
-
-  it('applies legacy roof to roof+segment migration when children is missing', () => {
-    const oldRoof = {
-      id: 'roof_legacy',
-      type: 'roof',
-      object: 'node',
-      parentId: null,
-      visible: true,
-      metadata: {},
-      position: [0, 0, 0],
-      // No `children` field — pre-schemaVersion roof format
-      length: 10,
-      height: 3,
-      leftWidth: 2,
-      rightWidth: 2,
-    }
-
-    const parsed = parseSceneData({
-      nodes: { roof_legacy: oldRoof },
-      rootNodeIds: ['roof_legacy'],
-    })
-
-    const migratedRoof = parsed.nodes['roof_legacy' as AnyNodeId] as any
-    expect(migratedRoof.children).toBeDefined()
-    expect(migratedRoof.children).toHaveLength(1)
-
-    // The segment should also be created
-    const segId = migratedRoof.children[0]
-    expect(parsed.nodes[segId]).toBeDefined()
-    expect((parsed.nodes[segId] as any).type).toBe('roof-segment')
-  })
-
-  it('returns empty nodes and rootNodeIds for empty input', () => {
-    const parsed = parseSceneData({})
-    expect(parsed.nodes).toEqual({})
-    expect(parsed.rootNodeIds).toEqual([])
-  })
-})
+// NOTE: Tests for serializeSceneData / parseSceneData / CURRENT_SCHEMA_VERSION
+// were removed when the scene serialization API was refactored — these helpers
+// are no longer publicly exported from `../store/use-scene`. Persistence is now
+// covered by the editor-side scene.ts which is exercised through integration
+// scenarios rather than unit tests in core.
 
 // ============================================================================
 // loadScene — default scene hierarchy
