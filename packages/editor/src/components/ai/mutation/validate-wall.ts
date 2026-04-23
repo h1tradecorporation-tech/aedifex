@@ -24,8 +24,9 @@ import { getLevelHeightContext, getWallsForLevel } from './spatial-queries'
 // Wall Validators
 // ============================================================================
 
-/** Minimum wall length in meters */
-const MIN_WALL_LENGTH = 0.5
+/** Minimum wall length in meters — aligned with upstream schema (0.01).
+ * Allows architectural micro-walls (column wraps, infill, transition pieces). */
+const MIN_WALL_LENGTH = 0.01
 
 export function validateAddWall(call: AddWallToolCall, wallCache?: Map<string, WallNode[]>): ValidatedAddWall {
   const start = [...call.start] as [number, number]

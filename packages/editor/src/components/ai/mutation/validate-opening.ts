@@ -18,6 +18,7 @@ import type {
   ValidatedUpdateWindow,
 } from '../types'
 import { avoidJunctions, findJunctionPositions } from './validate-wall'
+import { findAncestorLevelId } from './spatial-queries'
 
 // ============================================================================
 // Door / Window Validators
@@ -51,10 +52,10 @@ export function validateAddDoor(call: AddDoorToolCall, _wallCache?: Map<string, 
 
   // Avoid T-junction conflicts (perpendicular walls)
   // Derive level from wall's parent chain for accuracy, fallback to viewer selection
-  const doorLevelId = (() => {
-    const parent = nodes[wallNode.parentId as AnyNodeId]
-    return parent?.type === 'level' ? wallNode.parentId : null
-  })() ?? useViewer.getState().selection.levelId
+  // Walk the parent chain to find the level — defensive against future nesting
+  // (wall → group → level). Single-step lookup would silently fall back to the
+  // viewer's selected level, writing the door to the wrong floor.
+  const doorLevelId = findAncestorLevelId(call.wallId) ?? useViewer.getState().selection.levelId
   let finalX = clampedX
   let junctionAdjusted = false
   let junctionReason: string | undefined
@@ -143,11 +144,8 @@ export function validateAddWindow(call: AddWindowToolCall, _wallCache?: Map<stri
   const clampedY = Math.max(height / 2, Math.min(wallHeight - height / 2, defaultCenterY))
 
   // Avoid T-junction conflicts (perpendicular walls)
-  // Derive level from wall's parent chain for accuracy, fallback to viewer selection
-  const winLevelId = (() => {
-    const parent = nodes[wallNode.parentId as AnyNodeId]
-    return parent?.type === 'level' ? wallNode.parentId : null
-  })() ?? useViewer.getState().selection.levelId
+  // Walk parent chain to find level — see validateAddDoor for rationale.
+  const winLevelId = findAncestorLevelId(call.wallId) ?? useViewer.getState().selection.levelId
   let finalWinX = clampedX
   let winJunctionAdjusted = false
   let winJunctionReason: string | undefined

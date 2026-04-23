@@ -45,6 +45,26 @@ function isGhostNode(node: AnyNode): boolean {
 }
 
 /**
+ * Walk up the parent chain from `nodeId` until a node of type `level` is found.
+ * Returns null if no level ancestor exists. Defensive against future nesting
+ * (e.g., wall → group → level) — the previous single-step lookup would miss
+ * those, falsely falling back to viewer.selection and silently writing to the
+ * wrong level. Cycle-guarded via depth limit.
+ */
+export function findAncestorLevelId(nodeId: string): AnyNodeId | null {
+  const { nodes } = useScene.getState()
+  let currentId: string | null = nodeId
+  // 32 is more than any plausible nesting depth — also acts as cycle guard.
+  for (let i = 0; i < 32 && currentId; i++) {
+    const node: AnyNode | undefined = nodes[currentId as AnyNodeId]
+    if (!node) return null
+    if (node.type === 'level') return currentId as AnyNodeId
+    currentId = (node.parentId as string | null) ?? null
+  }
+  return null
+}
+
+/**
  * Collect all WallNode instances belonging to a given level.
  * Accepts an optional cache map to avoid redundant tree traversals
  * when called multiple times for the same level within a batch.
