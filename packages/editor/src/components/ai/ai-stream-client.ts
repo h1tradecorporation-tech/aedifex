@@ -311,6 +311,7 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         end: input.end as [number, number],
         thickness: input.thickness as number | undefined,
         height: input.height as number | undefined,
+        curveOffset: input.curveOffset as number | undefined,
         description: input.description as string | undefined,
       }
 
@@ -347,6 +348,7 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         end: input.end as [number, number] | undefined,
         height: input.height as number | undefined,
         thickness: input.thickness as number | undefined,
+        curveOffset: input.curveOffset as number | undefined,
         reason: input.reason as string | undefined,
       }
 
@@ -483,6 +485,20 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         length: input.length as number | undefined,
         height: input.height as number | undefined,
         stepCount: input.stepCount as number | undefined,
+        stairType: input.stairType as 'straight' | 'curved' | 'spiral' | undefined,
+        slabOpeningMode: input.slabOpeningMode as 'none' | 'destination' | undefined,
+        openingOffset: input.openingOffset as number | undefined,
+        fillToFloor: input.fillToFloor as boolean | undefined,
+        innerRadius: input.innerRadius as number | undefined,
+        sweepAngle: input.sweepAngle as number | undefined,
+        topLandingMode: input.topLandingMode as 'none' | 'integrated' | undefined,
+        topLandingDepth: input.topLandingDepth as number | undefined,
+        showCenterColumn: input.showCenterColumn as boolean | undefined,
+        showStepSupports: input.showStepSupports as boolean | undefined,
+        railingMode: input.railingMode as 'none' | 'left' | 'right' | 'both' | undefined,
+        railingHeight: input.railingHeight as number | undefined,
+        fromLevelId: input.fromLevelId as string | null | undefined,
+        toLevelId: input.toLevelId as string | null | undefined,
         levelId: input.levelId as string | undefined,
         description: input.description as string | undefined,
       }
@@ -497,6 +513,20 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         length: input.length as number | undefined,
         height: input.height as number | undefined,
         stepCount: input.stepCount as number | undefined,
+        stairType: input.stairType as 'straight' | 'curved' | 'spiral' | undefined,
+        slabOpeningMode: input.slabOpeningMode as 'none' | 'destination' | undefined,
+        openingOffset: input.openingOffset as number | undefined,
+        fillToFloor: input.fillToFloor as boolean | undefined,
+        innerRadius: input.innerRadius as number | undefined,
+        sweepAngle: input.sweepAngle as number | undefined,
+        topLandingMode: input.topLandingMode as 'none' | 'integrated' | undefined,
+        topLandingDepth: input.topLandingDepth as number | undefined,
+        showCenterColumn: input.showCenterColumn as boolean | undefined,
+        showStepSupports: input.showStepSupports as boolean | undefined,
+        railingMode: input.railingMode as 'none' | 'left' | 'right' | 'both' | undefined,
+        railingHeight: input.railingHeight as number | undefined,
+        fromLevelId: input.fromLevelId as string | null | undefined,
+        toLevelId: input.toLevelId as string | null | undefined,
         reason: input.reason as string | undefined,
       }
 
@@ -572,6 +602,7 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         baseStyle: input.baseStyle as 'floating' | 'grounded' | undefined,
         color: input.color as string | undefined,
         postSpacing: input.postSpacing as number | undefined,
+        curveOffset: input.curveOffset as number | undefined,
         levelId: input.levelId as string | undefined,
         description: input.description as string | undefined,
       }
@@ -588,6 +619,37 @@ function parseToolCall(name: string, input: Record<string, unknown>): AIToolCall
         baseStyle: input.baseStyle as 'floating' | 'grounded' | undefined,
         color: input.color as string | undefined,
         postSpacing: input.postSpacing as number | undefined,
+        curveOffset: input.curveOffset as number | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'update_wall_material':
+      return {
+        tool: 'update_wall_material',
+        nodeId: input.nodeId as string,
+        side: input.side as 'interior' | 'exterior' | 'both',
+        materialPreset: input.materialPreset as string | undefined,
+        materialColor: input.materialColor as string | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'update_roof_material':
+      return {
+        tool: 'update_roof_material',
+        nodeId: input.nodeId as string,
+        role: input.role as 'top' | 'edge' | 'wall',
+        materialPreset: input.materialPreset as string | undefined,
+        materialColor: input.materialColor as string | undefined,
+        reason: input.reason as string | undefined,
+      }
+
+    case 'update_stair_material':
+      return {
+        tool: 'update_stair_material',
+        nodeId: input.nodeId as string,
+        role: input.role as 'railing' | 'tread' | 'side',
+        materialPreset: input.materialPreset as string | undefined,
+        materialColor: input.materialColor as string | undefined,
         reason: input.reason as string | undefined,
       }
 

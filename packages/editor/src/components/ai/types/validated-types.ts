@@ -53,6 +53,7 @@ export interface ValidatedAddWall {
   end: [number, number]
   thickness: number
   height?: number
+  curveOffset?: number
   /** Resolved target level ID (from tool call or viewer selection at validation time). */
   levelId?: string
   adjustmentReason?: string
@@ -67,7 +68,38 @@ export interface ValidatedUpdateWall {
   thickness?: number
   start?: [number, number]
   end?: [number, number]
+  curveOffset?: number
   adjustmentReason?: string
+  errorReason?: string
+}
+
+export interface ValidatedUpdateWallMaterial {
+  type: 'update_wall_material'
+  status: ValidatedOperationStatus
+  nodeId: AnyNodeId
+  side: 'interior' | 'exterior' | 'both'
+  materialPreset?: string
+  materialColor?: string
+  errorReason?: string
+}
+
+export interface ValidatedUpdateRoofMaterial {
+  type: 'update_roof_material'
+  status: ValidatedOperationStatus
+  nodeId: AnyNodeId
+  role: 'top' | 'edge' | 'wall'
+  materialPreset?: string
+  materialColor?: string
+  errorReason?: string
+}
+
+export interface ValidatedUpdateStairMaterial {
+  type: 'update_stair_material'
+  status: ValidatedOperationStatus
+  nodeId: AnyNodeId
+  role: 'railing' | 'tread' | 'side'
+  materialPreset?: string
+  materialColor?: string
   errorReason?: string
 }
 
@@ -218,6 +250,20 @@ export interface ValidatedAddStair {
   length: number
   height: number
   stepCount: number
+  stairType?: 'straight' | 'curved' | 'spiral'
+  slabOpeningMode?: 'none' | 'destination'
+  openingOffset?: number
+  fillToFloor?: boolean
+  innerRadius?: number
+  sweepAngle?: number
+  topLandingMode?: 'none' | 'integrated'
+  topLandingDepth?: number
+  showCenterColumn?: boolean
+  showStepSupports?: boolean
+  railingMode?: 'none' | 'left' | 'right' | 'both'
+  railingHeight?: number
+  fromLevelId?: string | null
+  toLevelId?: string | null
   /** Resolved target level ID (from tool call or viewer selection at validation time). */
   levelId?: string
   adjustmentReason?: string
@@ -234,6 +280,20 @@ export interface ValidatedUpdateStair {
   length?: number
   height?: number
   stepCount?: number
+  stairType?: 'straight' | 'curved' | 'spiral'
+  slabOpeningMode?: 'none' | 'destination'
+  openingOffset?: number
+  fillToFloor?: boolean
+  innerRadius?: number
+  sweepAngle?: number
+  topLandingMode?: 'none' | 'integrated'
+  topLandingDepth?: number
+  showCenterColumn?: boolean
+  showStepSupports?: boolean
+  railingMode?: 'none' | 'left' | 'right' | 'both'
+  railingHeight?: number
+  fromLevelId?: string | null
+  toLevelId?: string | null
   adjustmentReason?: string
   errorReason?: string
 }
@@ -351,6 +411,7 @@ export interface ValidatedAddFence {
   baseStyle: 'floating' | 'grounded'
   color: string
   postSpacing: number
+  curveOffset?: number
   /** Resolved target level ID (from tool call or viewer selection at validation time). */
   levelId?: string
   adjustmentReason?: string
@@ -369,6 +430,8 @@ export interface ValidatedUpdateFence {
   baseStyle?: 'floating' | 'grounded'
   color?: string
   postSpacing?: number
+  curveOffset?: number
+  adjustmentReason?: string
   errorReason?: string
 }
 
@@ -415,3 +478,6 @@ export type ValidatedOperation =
   | ValidatedAddFence
   | ValidatedUpdateFence
   | ValidatedAddCutOut
+  | ValidatedUpdateWallMaterial
+  | ValidatedUpdateRoofMaterial
+  | ValidatedUpdateStairMaterial

@@ -373,6 +373,7 @@ describe('formatSceneContextForPrompt', () => {
       roofs: [],
       slabs: [],
       stairs: [],
+      fences: [],
       buildings: [],
     }
     const output = formatSceneContextForPrompt(ctx)
@@ -396,6 +397,7 @@ describe('formatSceneContextForPrompt', () => {
         { id: 'wall_long', start: [0, 0] as [number, number], end: [6, 0] as [number, number], thickness: 0.2, length: 6 },
       ],
       stairs: [],
+      fences: [],
       buildings: [],
     }
     const output = formatSceneContextForPrompt(ctx)
@@ -427,6 +429,7 @@ describe('formatSceneContextForPrompt', () => {
       roofs: [],
       slabs: [],
       stairs: [],
+      fences: [],
       buildings: [],
     }
     const output = formatSceneContextForPrompt(ctx)
@@ -466,6 +469,7 @@ describe('formatSceneContextForPrompt', () => {
         },
       ],
       stairs: [],
+      fences: [],
       buildings: [],
     }
     const output = formatSceneContextForPrompt(ctx)
@@ -494,6 +498,7 @@ describe('formatSceneContextForPrompt', () => {
         },
       ],
       stairs: [],
+      fences: [],
       buildings: [],
     }
     const output = formatSceneContextForPrompt(ctx)
@@ -513,6 +518,7 @@ describe('formatSceneContextForPrompt', () => {
       roofs: [],
       slabs: [],
       stairs: [],
+      fences: [],
       buildings: [],
     }
     const output = formatSceneContextForPrompt(ctx)

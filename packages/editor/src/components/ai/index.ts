@@ -16,6 +16,7 @@ export {
   clearGhostPreview,
   isGhostPreviewActive,
 } from './ai-preview-manager'
+export { getPendingGhostRemovalIds } from './preview/ghost-node-helpers'
 export {
   createProposals,
   switchToProposal,

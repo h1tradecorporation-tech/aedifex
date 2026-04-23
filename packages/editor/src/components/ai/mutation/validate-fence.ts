@@ -1,5 +1,6 @@
 import {
   type AnyNodeId,
+  normalizeWallCurveOffset,
   useScene,
 } from '@aedifex/core'
 import type {
@@ -113,9 +114,21 @@ export function validateAddFence(call: AddFenceToolCall): ValidatedAddFence {
     }
   }
 
+  // Fences reuse wall-curve geometry helpers, so the same chord/2 cap applies.
+  // Clamp here so the LLM sees the adjustment instead of a silent renderer clamp.
+  let finalCurveOffset = call.curveOffset
+  let curveAdjustment: string | undefined
+  if (call.curveOffset !== undefined) {
+    const clamped = normalizeWallCurveOffset({ start, end }, call.curveOffset)
+    if (clamped !== call.curveOffset) {
+      finalCurveOffset = clamped
+      curveAdjustment = `curveOffset clamped from ${call.curveOffset} to ${clamped} (max = chord length / 2 ≈ ${(length / 2).toFixed(2)}m).`
+    }
+  }
+
   return {
     type: 'add_fence',
-    status: 'valid',
+    status: curveAdjustment ? 'adjusted' : 'valid',
     start,
     end,
     height,
@@ -124,7 +137,9 @@ export function validateAddFence(call: AddFenceToolCall): ValidatedAddFence {
     baseStyle: baseStyle as 'floating' | 'grounded',
     color: call.color ?? '#ffffff',
     postSpacing: call.postSpacing ?? 2,
+    curveOffset: finalCurveOffset,
     levelId: effectiveLevel ?? undefined,
+    adjustmentReason: curveAdjustment,
   }
 }
 
@@ -161,9 +176,24 @@ export function validateUpdateFence(call: UpdateFenceToolCall): ValidatedUpdateF
     }
   }
 
+  // Clamp curveOffset against the resulting (possibly updated) chord.
+  let finalCurveOffset = call.curveOffset
+  let curveAdjustment: string | undefined
+  if (call.curveOffset !== undefined) {
+    const fence = node as { start: [number, number]; end: [number, number] }
+    const effStart = call.start ?? fence.start
+    const effEnd = call.end ?? fence.end
+    const clamped = normalizeWallCurveOffset({ start: effStart, end: effEnd }, call.curveOffset)
+    if (clamped !== call.curveOffset) {
+      finalCurveOffset = clamped
+      const chord = Math.hypot(effEnd[0] - effStart[0], effEnd[1] - effStart[1])
+      curveAdjustment = `curveOffset clamped from ${call.curveOffset} to ${clamped} (max = chord length / 2 ≈ ${(chord / 2).toFixed(2)}m).`
+    }
+  }
+
   return {
     type: 'update_fence',
-    status: 'valid',
+    status: curveAdjustment ? 'adjusted' : 'valid',
     nodeId: call.nodeId as AnyNodeId,
     start: call.start,
     end: call.end,
@@ -173,6 +203,8 @@ export function validateUpdateFence(call: UpdateFenceToolCall): ValidatedUpdateF
     baseStyle: call.baseStyle,
     color: call.color,
     postSpacing: call.postSpacing,
+    curveOffset: finalCurveOffset,
+    adjustmentReason: curveAdjustment,
   }
 }
 

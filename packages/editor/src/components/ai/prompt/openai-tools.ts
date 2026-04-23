@@ -61,7 +61,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_material',
-      description: 'Change the material/color of a furniture item.',
+      description: 'Change the material/color of a furniture item, slab, ceiling, fence, or door/window. For walls use update_wall_material; for roofs use update_roof_material; for stairs use update_stair_material.',
       parameters: {
         type: 'object',
         properties: {
@@ -76,8 +76,62 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'update_wall_material',
+      description: 'Change wall surface material. Walls have separate interior and exterior faces — use side="both" only when you intentionally want the legacy single-face material to drive both sides.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'The node ID of the wall.' },
+          side: { type: 'string', enum: ['interior', 'exterior', 'both'], description: 'Which face to apply the material to.' },
+          materialPreset: { type: 'string', enum: ['wall-wood1', 'wall-wood2', 'wall-wood3', 'wall-wood4', 'wall-wood5', 'wall-wallpaper1', 'wall-wallpaper2', 'wall-wallpaper3', 'preset-white', 'preset-metal', 'preset-glass'], description: 'Catalog preset ID. Only IDs valid for wall surfaces are allowed. Mutually exclusive with materialColor; if both are provided, preset wins.' },
+          materialColor: { type: 'string', description: 'Inline color hex string (e.g. "#aabbcc"). Use when no catalog preset matches.' },
+          reason: { type: 'string', description: 'Brief reason for the change.' },
+        },
+        required: ['nodeId', 'side'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_roof_material',
+      description: 'Change roof surface material per role: top (sheet), edge (fascia), wall (gable wall under roof). Falls back through node defaults when a role-specific material is not set.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'The node ID of the roof container (RoofNode), not a segment.' },
+          role: { type: 'string', enum: ['top', 'edge', 'wall'], description: 'Which roof surface role to update.' },
+          materialPreset: { type: 'string', enum: ['wall-wood1', 'wall-wood2', 'wall-wood3'], description: 'Catalog preset ID valid for roof surfaces. The catalog has no roof-specific presets yet; these wall woods are roof-targeted. Mutually exclusive with materialColor.' },
+          materialColor: { type: 'string', description: 'Inline color hex string.' },
+          reason: { type: 'string', description: 'Brief reason for the change.' },
+        },
+        required: ['nodeId', 'role'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_stair_material',
+      description: 'Change stair surface material per role: railing, tread (step surface), side (stringer). Falls back through node defaults when a role-specific material is not set.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeId: { type: 'string', description: 'The node ID of the stair container (StairNode), not a segment.' },
+          role: { type: 'string', enum: ['railing', 'tread', 'side'], description: 'Which stair surface role to update.' },
+          materialPreset: { type: 'string', enum: ['wall-wood1', 'wall-wood2', 'wall-wood3', 'wall-wood4', 'wall-wood5', 'wall-marble1', 'wall-marble2', 'preset-white'], description: 'Catalog preset ID valid for stair surfaces. The catalog has no stair-specific presets yet; these are stair-targeted woods/marbles. Mutually exclusive with materialColor.' },
+          materialColor: { type: 'string', description: 'Inline color hex string.' },
+          reason: { type: 'string', description: 'Brief reason for the change.' },
+        },
+        required: ['nodeId', 'role'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_wall',
-      description: 'Create a wall segment. Walls snap to 0.5m grid.',
+      description: 'Create a wall segment. Walls snap to 0.5m grid. Pass curveOffset to bend the wall into an arc.',
       parameters: {
         type: 'object',
         properties: {
@@ -85,6 +139,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
           end: { type: 'array', items: { type: 'number' }, description: 'End point [x, z] in meters.' },
           thickness: { type: 'number', description: 'Wall thickness in meters (default: 0.2).' },
           height: { type: 'number', description: 'Wall height in meters (default: 2.8).' },
+          curveOffset: { type: 'number', description: 'Optional sagitta offset (meters) at the wall midpoint to bend the wall into an arc. Positive offsets bow toward the wall front, negative toward the back. Omit for a straight wall.' },
           levelId: { type: 'string', description: 'Target level ID (from scene context). Required for multi-level buildings when targeting a level other than the currently selected one.' },
           description: { type: 'string', description: 'Brief description of this wall.' },
         },
@@ -137,7 +192,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_wall',
-      description: 'Update properties of an existing wall (height, thickness, start/end points). Preserves all doors and windows on the wall.',
+      description: 'Update properties of an existing wall (height, thickness, start/end points, curveOffset). Preserves all doors and windows on the wall.',
       parameters: {
         type: 'object',
         properties: {
@@ -146,6 +201,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
           thickness: { type: 'number', description: 'New wall thickness in meters.' },
           start: { type: 'array', items: { type: 'number' }, description: 'New start point [x, z] in meters.' },
           end: { type: 'array', items: { type: 'number' }, description: 'New end point [x, z] in meters.' },
+          curveOffset: { type: 'number', description: 'Sagitta offset (meters) at the wall midpoint to bend the wall into an arc. Pass 0 (or omit) to keep straight.' },
           reason: { type: 'string', description: 'Brief reason for the change.' },
         },
         required: ['nodeId'],
@@ -339,16 +395,30 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'add_stair',
-      description: 'Create a staircase with one stair flight. The stair is placed at the given position and connects the current level to the one above. Creates a StairNode container with one StairSegment inside.',
+      description: 'Create a staircase. Default stairType="straight" creates one flight; "curved" uses innerRadius+sweepAngle; "spiral" uses innerRadius+sweepAngle plus optional integrated top landing. Set slabOpeningMode="destination" to auto-cut a hole in the destination level slab/ceiling for the stairwell.',
       parameters: {
         type: 'object',
         properties: {
           position: { type: 'array', items: { type: 'number' }, description: 'Position [x, y, z] in meters where the stair starts.' },
           rotationY: { type: 'number', description: 'Rotation around Y axis in radians (default: 0). 0 = stairs go toward +Z.' },
           width: { type: 'number', description: 'Stair width in meters (default: 1.0). Range: 0.5-5.0.' },
-          length: { type: 'number', description: 'Horizontal run distance in meters (default: 3.0). Range: 0.5-10.0.' },
+          length: { type: 'number', description: 'Horizontal run distance in meters (default: 3.0, straight stairs only). Range: 0.5-10.0.' },
           height: { type: 'number', description: 'Vertical rise in meters (default: 2.5). Should match floor-to-floor height. Range: 0.5-10.0.' },
           stepCount: { type: 'number', description: 'Number of steps (default: 10). Must be a whole number. Range: 2-30.' },
+          stairType: { type: 'string', enum: ['straight', 'curved', 'spiral'], description: 'Stair geometry kind (default: straight).' },
+          slabOpeningMode: { type: 'string', enum: ['none', 'destination'], description: 'Whether to auto-cut a slab/ceiling hole on the destination level (default: none).' },
+          openingOffset: { type: 'number', description: 'Extra cutout polygon expansion in meters (default: 0).' },
+          fillToFloor: { type: 'boolean', description: 'Whether the stair mass fills down to the floor (default: true). Set false for thin tread-only look.' },
+          innerRadius: { type: 'number', description: 'Inner curve radius in meters for curved/spiral stairs (default: 0.9).' },
+          sweepAngle: { type: 'number', description: 'Total sweep in radians for curved/spiral stairs (default: π/2).' },
+          topLandingMode: { type: 'string', enum: ['none', 'integrated'], description: 'Optional integrated top landing for spiral stairs (default: none).' },
+          topLandingDepth: { type: 'number', description: 'Depth of the integrated spiral top landing in meters (default: 0.9).' },
+          showCenterColumn: { type: 'boolean', description: 'Render the spiral center column (default: true).' },
+          showStepSupports: { type: 'boolean', description: 'Render step support brackets for spiral stairs (default: true).' },
+          railingMode: { type: 'string', enum: ['none', 'left', 'right', 'both'], description: 'Where to render railings (default: none).' },
+          railingHeight: { type: 'number', description: 'Railing top height above stair surface in meters (default: 0.92).' },
+          fromLevelId: { type: 'string', description: 'Source level ID for auto cutout (defaults to the stair host level).' },
+          toLevelId: { type: 'string', description: 'Destination level ID for auto cutout (defaults to the level immediately above).' },
           levelId: { type: 'string', description: 'Target level ID (from scene context). Required for multi-level buildings when targeting a level other than the currently selected one.' },
           description: { type: 'string', description: 'Brief description of this staircase.' },
         },
@@ -360,7 +430,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_stair',
-      description: 'Update properties of an existing staircase (position, rotation, dimensions, step count). Changes apply to the stair container and its first segment.',
+      description: 'Update properties of an existing staircase. Geometry-level fields apply to the StairNode container; width/length/height/stepCount/fillToFloor are also mirrored onto the first straight-stair segment.',
       parameters: {
         type: 'object',
         properties: {
@@ -368,9 +438,23 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
           position: { type: 'array', items: { type: 'number' }, description: 'New position [x, y, z] in meters.' },
           rotationY: { type: 'number', description: 'New rotation around Y axis in radians.' },
           width: { type: 'number', description: 'New stair width in meters (0.5-5.0).' },
-          length: { type: 'number', description: 'New horizontal run in meters (0.5-10.0).' },
+          length: { type: 'number', description: 'New horizontal run in meters (0.5-10.0, straight stairs only).' },
           height: { type: 'number', description: 'New vertical rise in meters (0.5-10.0).' },
           stepCount: { type: 'number', description: 'New number of steps (2-30). Must be a whole number.' },
+          stairType: { type: 'string', enum: ['straight', 'curved', 'spiral'], description: 'New stair geometry kind.' },
+          slabOpeningMode: { type: 'string', enum: ['none', 'destination'], description: 'Toggle auto-cutout on destination level.' },
+          openingOffset: { type: 'number', description: 'Adjust extra cutout expansion in meters.' },
+          fillToFloor: { type: 'boolean', description: 'Toggle filled mass vs tread-only.' },
+          innerRadius: { type: 'number', description: 'Inner radius for curved/spiral stairs.' },
+          sweepAngle: { type: 'number', description: 'Total sweep in radians for curved/spiral stairs.' },
+          topLandingMode: { type: 'string', enum: ['none', 'integrated'], description: 'Integrated spiral top landing toggle.' },
+          topLandingDepth: { type: 'number', description: 'Spiral top landing depth in meters.' },
+          showCenterColumn: { type: 'boolean', description: 'Spiral center column toggle.' },
+          showStepSupports: { type: 'boolean', description: 'Spiral step support toggle.' },
+          railingMode: { type: 'string', enum: ['none', 'left', 'right', 'both'], description: 'Railing rendering mode.' },
+          railingHeight: { type: 'number', description: 'Railing top height in meters.' },
+          fromLevelId: { type: 'string', description: 'Source level for auto cutout.' },
+          toLevelId: { type: 'string', description: 'Destination level for auto cutout.' },
           reason: { type: 'string', description: 'Brief reason for the change.' },
         },
         required: ['nodeId'],
@@ -556,6 +640,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
           baseStyle: { type: 'string', enum: ['floating', 'grounded'], description: 'Base style (default: grounded). grounded = sits on ground, floating = raised above ground.' },
           color: { type: 'string', description: 'Fence color as hex string (default: #ffffff).' },
           postSpacing: { type: 'number', description: 'Distance between fence posts in meters (default: 2).' },
+          curveOffset: { type: 'number', description: 'Optional sagitta offset (meters) at the fence midpoint to bend it into an arc. Omit for a straight fence.' },
           levelId: { type: 'string', description: 'Target level ID (from scene context). Required for multi-level buildings when targeting a level other than the currently selected one.' },
           description: { type: 'string', description: 'Brief description.' },
         },
@@ -567,7 +652,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_fence',
-      description: 'Update properties of an existing fence (position, height, style, color, etc.).',
+      description: 'Update properties of an existing fence (position, height, style, color, curveOffset, etc.).',
       parameters: {
         type: 'object',
         properties: {
@@ -580,6 +665,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
           baseStyle: { type: 'string', enum: ['floating', 'grounded'], description: 'New base style.' },
           color: { type: 'string', description: 'New fence color as hex string.' },
           postSpacing: { type: 'number', description: 'New post spacing in meters.' },
+          curveOffset: { type: 'number', description: 'New sagitta offset in meters (use 0 to straighten an arced fence).' },
           reason: { type: 'string', description: 'Brief reason for the change.' },
         },
         required: ['nodeId'],
@@ -615,7 +701,7 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
             items: {
               type: 'object',
               properties: {
-                type: { type: 'string', enum: ['add_item', 'remove_item', 'move_item', 'update_material', 'update_item', 'add_wall', 'update_wall', 'add_door', 'update_door', 'add_window', 'update_window', 'remove_node', 'add_level', 'add_slab', 'update_slab', 'add_ceiling', 'update_ceiling', 'add_roof', 'update_roof', 'add_zone', 'update_zone', 'add_building', 'update_site', 'add_scan', 'add_guide', 'move_building', 'clone_level', 'add_fence', 'update_fence', 'add_cut_out'] },
+                type: { type: 'string', enum: ['add_item', 'remove_item', 'move_item', 'update_material', 'update_item', 'add_wall', 'update_wall', 'update_wall_material', 'add_door', 'update_door', 'add_window', 'update_window', 'remove_node', 'add_level', 'add_slab', 'update_slab', 'add_ceiling', 'update_ceiling', 'add_roof', 'update_roof', 'update_roof_material', 'add_stair', 'update_stair', 'update_stair_material', 'add_zone', 'update_zone', 'add_building', 'update_site', 'add_scan', 'add_guide', 'move_building', 'clone_level', 'add_fence', 'update_fence', 'add_cut_out'] },
                 catalogSlug: { type: 'string' }, nodeId: { type: 'string' },
                 position: { type: 'array', items: { type: 'number' } }, rotationY: { type: 'number' },
                 material: { type: 'string' },
@@ -626,6 +712,18 @@ export const OPENAI_TOOLS: ChatCompletionTool[] = [
                 description: { type: 'string' }, reason: { type: 'string' },
                 style: { type: 'string' }, baseStyle: { type: 'string' }, color: { type: 'string' }, postSpacing: { type: 'number' },
                 hole: { type: 'array', items: { type: 'array', items: { type: 'number' } } },
+                // Curved wall/fence
+                curveOffset: { type: 'number' },
+                // Material role/preset/color (used by update_wall_material, update_roof_material, update_stair_material)
+                role: { type: 'string' }, materialPreset: { type: 'string' }, materialColor: { type: 'string' },
+                // Stair fields (add_stair, update_stair)
+                length: { type: 'number' }, stepCount: { type: 'number' },
+                stairType: { type: 'string' }, slabOpeningMode: { type: 'string' }, openingOffset: { type: 'number' },
+                fillToFloor: { type: 'boolean' }, innerRadius: { type: 'number' }, sweepAngle: { type: 'number' },
+                topLandingMode: { type: 'string' }, topLandingDepth: { type: 'number' },
+                showCenterColumn: { type: 'boolean' }, showStepSupports: { type: 'boolean' },
+                railingMode: { type: 'string' }, railingHeight: { type: 'number' },
+                fromLevelId: { type: 'string' }, toLevelId: { type: 'string' },
               },
             },
           },

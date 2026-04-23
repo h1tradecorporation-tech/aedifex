@@ -1,6 +1,7 @@
 import {
   type AnyNode,
   type AnyNodeId,
+  getCatalogMaterialById,
   useScene,
 } from '@aedifex/core'
 import { useViewer } from '@aedifex/viewer'
@@ -17,9 +18,11 @@ import type {
   CloneLevelToolCall,
   MoveBuildingToolCall,
   UpdateCeilingToolCall,
+  UpdateRoofMaterialToolCall,
   UpdateRoofToolCall,
   UpdateSiteToolCall,
   UpdateSlabToolCall,
+  UpdateStairMaterialToolCall,
   UpdateStairToolCall,
   UpdateZoneToolCall,
   ValidatedAddBuilding,
@@ -35,9 +38,11 @@ import type {
   ValidatedMoveBuilding,
   ValidatedUpdateCeiling,
   ValidatedUpdateRoof,
+  ValidatedUpdateRoofMaterial,
   ValidatedUpdateSite,
   ValidatedUpdateSlab,
   ValidatedUpdateStair,
+  ValidatedUpdateStairMaterial,
   ValidatedUpdateZone,
 } from '../types'
 import { getLevelHeightContext, getZonesForLevel, resolveEffectiveLevelId } from './spatial-queries'
@@ -461,16 +466,51 @@ export function validateAddStair(call: AddStairToolCall): ValidatedAddStair {
     }
   }
 
+  // Field-mode mismatch warnings: certain fields are only meaningful for specific
+  // stairType values. Don't reject — the renderer ignores irrelevant fields, but
+  // surface a hint so the LLM doesn't think it set a property that took effect.
+  const stairKind = call.stairType ?? 'straight'
+  const irrelevantWarnings: string[] = []
+  if (stairKind === 'straight') {
+    if (call.innerRadius !== undefined) irrelevantWarnings.push('innerRadius')
+    if (call.sweepAngle !== undefined) irrelevantWarnings.push('sweepAngle')
+    if (call.topLandingMode && call.topLandingMode !== 'none') irrelevantWarnings.push('topLandingMode')
+    if (call.topLandingDepth !== undefined) irrelevantWarnings.push('topLandingDepth')
+    if (call.showCenterColumn !== undefined) irrelevantWarnings.push('showCenterColumn')
+    if (call.showStepSupports !== undefined) irrelevantWarnings.push('showStepSupports')
+  } else {
+    // curved/spiral
+    if (call.length !== undefined && call.length !== 3.0) irrelevantWarnings.push('length')
+  }
+  const adjustmentReason = irrelevantWarnings.length > 0
+    ? `${irrelevantWarnings.join(', ')} ignored for stairType=${stairKind} (only applies to ${stairKind === 'straight' ? 'curved/spiral' : 'straight'} stairs).`
+    : undefined
+
   return {
     type: 'add_stair',
-    status: 'valid',
+    status: adjustmentReason ? 'adjusted' : 'valid',
     position: call.position ?? [0, 0, 0],
     rotation,
     width,
     length,
     height,
     stepCount,
+    stairType: call.stairType,
+    slabOpeningMode: call.slabOpeningMode,
+    openingOffset: call.openingOffset,
+    fillToFloor: call.fillToFloor,
+    innerRadius: call.innerRadius,
+    sweepAngle: call.sweepAngle,
+    topLandingMode: call.topLandingMode,
+    topLandingDepth: call.topLandingDepth,
+    showCenterColumn: call.showCenterColumn,
+    showStepSupports: call.showStepSupports,
+    railingMode: call.railingMode,
+    railingHeight: call.railingHeight,
+    fromLevelId: call.fromLevelId,
+    toLevelId: call.toLevelId,
     levelId: effectiveStairLevel ?? undefined,
+    adjustmentReason,
   }
 }
 
@@ -515,9 +555,29 @@ export function validateUpdateStair(call: UpdateStairToolCall): ValidatedUpdateS
     }
   }
 
+  // Field-mode mismatch warnings: same as validateAddStair but resolves
+  // effective stairType from `call.stairType ?? existing.stairType` so updates
+  // that don't change kind still get checked against current state.
+  const existingStair = node as { stairType?: string }
+  const effectiveKind = call.stairType ?? existingStair.stairType ?? 'straight'
+  const irrelevantWarnings: string[] = []
+  if (effectiveKind === 'straight') {
+    if (call.innerRadius !== undefined) irrelevantWarnings.push('innerRadius')
+    if (call.sweepAngle !== undefined) irrelevantWarnings.push('sweepAngle')
+    if (call.topLandingMode && call.topLandingMode !== 'none') irrelevantWarnings.push('topLandingMode')
+    if (call.topLandingDepth !== undefined) irrelevantWarnings.push('topLandingDepth')
+    if (call.showCenterColumn !== undefined) irrelevantWarnings.push('showCenterColumn')
+    if (call.showStepSupports !== undefined) irrelevantWarnings.push('showStepSupports')
+  } else {
+    if (call.length !== undefined) irrelevantWarnings.push('length')
+  }
+  const adjustmentReason = irrelevantWarnings.length > 0
+    ? `${irrelevantWarnings.join(', ')} ignored for stairType=${effectiveKind} (only applies to ${effectiveKind === 'straight' ? 'curved/spiral' : 'straight'} stairs).`
+    : undefined
+
   return {
     type: 'update_stair',
-    status: 'valid',
+    status: adjustmentReason ? 'adjusted' : 'valid',
     nodeId: call.nodeId as AnyNodeId,
     position: call.position,
     rotation: call.rotationY,
@@ -525,6 +585,84 @@ export function validateUpdateStair(call: UpdateStairToolCall): ValidatedUpdateS
     length: call.length,
     height: call.height,
     stepCount: roundedStepCount,
+    stairType: call.stairType,
+    slabOpeningMode: call.slabOpeningMode,
+    openingOffset: call.openingOffset,
+    fillToFloor: call.fillToFloor,
+    innerRadius: call.innerRadius,
+    sweepAngle: call.sweepAngle,
+    topLandingMode: call.topLandingMode,
+    topLandingDepth: call.topLandingDepth,
+    showCenterColumn: call.showCenterColumn,
+    showStepSupports: call.showStepSupports,
+    railingMode: call.railingMode,
+    railingHeight: call.railingHeight,
+    fromLevelId: call.fromLevelId,
+    toLevelId: call.toLevelId,
+    adjustmentReason,
+  }
+}
+
+const VALID_ROOF_ROLES = new Set(['top', 'edge', 'wall'])
+const VALID_STAIR_ROLES = new Set(['railing', 'tread', 'side'])
+
+export function validateUpdateRoofMaterial(call: UpdateRoofMaterialToolCall): ValidatedUpdateRoofMaterial {
+  const { nodes } = useScene.getState()
+  const node = nodes[call.nodeId as AnyNodeId]
+
+  if (!node) {
+    return { type: 'update_roof_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Roof "${call.nodeId}" not found.` }
+  }
+  if (node.type !== 'roof') {
+    return { type: 'update_roof_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Node "${call.nodeId}" is a ${node.type}, not a roof.` }
+  }
+  if (!VALID_ROOF_ROLES.has(call.role)) {
+    return { type: 'update_roof_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Invalid role "${call.role}". Must be one of: top, edge, wall.` }
+  }
+  if (!call.materialPreset && !call.materialColor) {
+    return { type: 'update_roof_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: 'Provide either materialPreset (catalog ID) or materialColor (hex).' }
+  }
+  if (call.materialPreset && !getCatalogMaterialById(call.materialPreset)) {
+    return { type: 'update_roof_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Catalog preset "${call.materialPreset}" not found. Use materialColor with a hex value, or pick an existing roof preset id (e.g. "roof-tile1").` }
+  }
+
+  return {
+    type: 'update_roof_material',
+    status: 'valid',
+    nodeId: call.nodeId as AnyNodeId,
+    role: call.role,
+    materialPreset: call.materialPreset,
+    materialColor: call.materialColor,
+  }
+}
+
+export function validateUpdateStairMaterial(call: UpdateStairMaterialToolCall): ValidatedUpdateStairMaterial {
+  const { nodes } = useScene.getState()
+  const node = nodes[call.nodeId as AnyNodeId]
+
+  if (!node) {
+    return { type: 'update_stair_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Stair "${call.nodeId}" not found.` }
+  }
+  if (node.type !== 'stair') {
+    return { type: 'update_stair_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Node "${call.nodeId}" is a ${node.type}, not a stair.` }
+  }
+  if (!VALID_STAIR_ROLES.has(call.role)) {
+    return { type: 'update_stair_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Invalid role "${call.role}". Must be one of: railing, tread, side.` }
+  }
+  if (!call.materialPreset && !call.materialColor) {
+    return { type: 'update_stair_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: 'Provide either materialPreset (catalog ID) or materialColor (hex).' }
+  }
+  if (call.materialPreset && !getCatalogMaterialById(call.materialPreset)) {
+    return { type: 'update_stair_material', status: 'invalid', nodeId: call.nodeId as AnyNodeId, role: call.role, errorReason: `Catalog preset "${call.materialPreset}" not found. Use materialColor with a hex value, or pick an existing stair preset id (e.g. "stair-wood1").` }
+  }
+
+  return {
+    type: 'update_stair_material',
+    status: 'valid',
+    nodeId: call.nodeId as AnyNodeId,
+    role: call.role,
+    materialPreset: call.materialPreset,
+    materialColor: call.materialColor,
   }
 }
 

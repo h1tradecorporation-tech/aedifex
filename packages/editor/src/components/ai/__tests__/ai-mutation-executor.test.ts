@@ -8,6 +8,7 @@ const mockNodes: Record<string, unknown> = {}
 const mockSelection = { levelId: 'level-1' }
 
 // Mock @aedifex/core
+const mockCatalog = new Set<string>(['wall-wood1', 'wall-brick1', 'roof-tile1', 'stair-wood1'])
 vi.mock('@aedifex/core', () => ({
   useScene: {
     getState: () => ({
@@ -18,6 +19,7 @@ vi.mock('@aedifex/core', () => ({
     canPlaceOnFloor: vi.fn(() => ({ valid: true, conflictIds: [] })),
     getSlabElevationForItem: vi.fn(() => 0),
   },
+  getCatalogMaterialById: (id?: string) => (id && mockCatalog.has(id) ? { id, label: id } : undefined),
 }))
 
 // Mock @aedifex/viewer
@@ -367,5 +369,169 @@ describe('validateAllToolCalls — batch operations', () => {
     const results = validateAllToolCalls(calls)
     expect(results).toHaveLength(2)
     expect(results.every((r) => r.status === 'valid')).toBe(true)
+  })
+})
+
+// ============================================================================
+// Surface material tools (B方案: per-side / per-role material updates)
+// ============================================================================
+
+describe('validateToolCall — update_wall_material', () => {
+  beforeEach(() => {
+    mockNodes['wall_1'] = { id: 'wall_1', type: 'wall', visible: true }
+  })
+
+  it('accepts a valid catalog preset on the interior side', () => {
+    const result = validateToolCall({
+      tool: 'update_wall_material',
+      nodeId: 'wall_1',
+      side: 'interior',
+      materialPreset: 'wall-wood1',
+    } as any)[0]!
+    expect(result.status).toBe('valid')
+    expect((result as any).side).toBe('interior')
+    expect((result as any).materialPreset).toBe('wall-wood1')
+  })
+
+  it('accepts a hex color when no preset matches', () => {
+    const result = validateToolCall({
+      tool: 'update_wall_material',
+      nodeId: 'wall_1',
+      side: 'exterior',
+      materialColor: '#aabbcc',
+    } as any)[0]!
+    expect(result.status).toBe('valid')
+    expect((result as any).materialColor).toBe('#aabbcc')
+  })
+
+  it('rejects when neither preset nor color is provided', () => {
+    const result = validateToolCall({
+      tool: 'update_wall_material',
+      nodeId: 'wall_1',
+      side: 'both',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/materialPreset|materialColor/)
+  })
+
+  it('rejects an unknown catalog preset id', () => {
+    const result = validateToolCall({
+      tool: 'update_wall_material',
+      nodeId: 'wall_1',
+      side: 'interior',
+      materialPreset: 'wood_oak', // not in catalog
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/not found|wall-wood1/)
+  })
+
+  it('rejects an invalid side value', () => {
+    const result = validateToolCall({
+      tool: 'update_wall_material',
+      nodeId: 'wall_1',
+      side: 'middle' as any,
+      materialColor: '#ffffff',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/Invalid side/)
+  })
+
+  it('rejects when target node is not a wall', () => {
+    mockNodes['stair_1'] = { id: 'stair_1', type: 'stair', visible: true }
+    const result = validateToolCall({
+      tool: 'update_wall_material',
+      nodeId: 'stair_1',
+      side: 'interior',
+      materialColor: '#ffffff',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/not a wall/)
+  })
+})
+
+describe('validateToolCall — update_roof_material', () => {
+  beforeEach(() => {
+    mockNodes['roof_1'] = { id: 'roof_1', type: 'roof', visible: true }
+  })
+
+  it.each([
+    ['top'],
+    ['edge'],
+    ['wall'],
+  ] as const)('accepts role=%s with a hex color', (role) => {
+    const result = validateToolCall({
+      tool: 'update_roof_material',
+      nodeId: 'roof_1',
+      role,
+      materialColor: '#445566',
+    } as any)[0]!
+    expect(result.status).toBe('valid')
+    expect((result as any).role).toBe(role)
+  })
+
+  it('rejects unknown catalog preset', () => {
+    const result = validateToolCall({
+      tool: 'update_roof_material',
+      nodeId: 'roof_1',
+      role: 'top',
+      materialPreset: 'made-up-preset',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+  })
+
+  it('rejects when target node is not a roof', () => {
+    mockNodes['wall_x'] = { id: 'wall_x', type: 'wall', visible: true }
+    const result = validateToolCall({
+      tool: 'update_roof_material',
+      nodeId: 'wall_x',
+      role: 'top',
+      materialColor: '#000000',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/not a roof/)
+  })
+})
+
+describe('validateToolCall — update_stair_material', () => {
+  beforeEach(() => {
+    mockNodes['stair_1'] = { id: 'stair_1', type: 'stair', visible: true }
+  })
+
+  it.each([
+    ['railing'],
+    ['tread'],
+    ['side'],
+  ] as const)('accepts role=%s with a valid catalog preset', (role) => {
+    const result = validateToolCall({
+      tool: 'update_stair_material',
+      nodeId: 'stair_1',
+      role,
+      materialPreset: 'stair-wood1',
+    } as any)[0]!
+    expect(result.status).toBe('valid')
+    expect((result as any).role).toBe(role)
+  })
+
+  it('rejects an invalid role', () => {
+    const result = validateToolCall({
+      tool: 'update_stair_material',
+      nodeId: 'stair_1',
+      role: 'banister' as any,
+      materialColor: '#000000',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/Invalid role/)
+  })
+
+  it('rejects when target node is not a stair', () => {
+    mockNodes['roof_x'] = { id: 'roof_x', type: 'roof', visible: true }
+    const result = validateToolCall({
+      tool: 'update_stair_material',
+      nodeId: 'roof_x',
+      role: 'tread',
+      materialColor: '#000000',
+    } as any)[0]!
+    expect(result.status).toBe('invalid')
+    expect((result as any).errorReason).toMatch(/not a stair/)
   })
 })

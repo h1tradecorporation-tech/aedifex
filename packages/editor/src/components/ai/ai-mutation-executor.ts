@@ -35,12 +35,14 @@ import {
   validateMoveBuilding,
   validateUpdateCeiling,
   validateUpdateRoof,
+  validateUpdateRoofMaterial,
   validateUpdateSite,
   validateUpdateSlab,
   validateUpdateStair,
+  validateUpdateStairMaterial,
   validateUpdateZone,
 } from './mutation/validate-structure'
-import { validateAddWall, validateRemoveNode, validateUpdateWall } from './mutation/validate-wall'
+import { validateAddWall, validateRemoveNode, validateUpdateWall, validateUpdateWallMaterial } from './mutation/validate-wall'
 import { validateAddCutOut, validateAddFence, validateUpdateFence } from './mutation/validate-fence'
 
 // ============================================================================
@@ -138,6 +140,12 @@ export function validateToolCall(
       return [validateUpdateFence(toolCall)]
     case 'add_cut_out':
       return [validateAddCutOut(toolCall)]
+    case 'update_wall_material':
+      return [validateUpdateWallMaterial(toolCall)]
+    case 'update_roof_material':
+      return [validateUpdateRoofMaterial(toolCall)]
+    case 'update_stair_material':
+      return [validateUpdateStairMaterial(toolCall)]
     // enter_walkthrough is handled as a special tool in ai-agent-loop.ts
     // before reaching the mutation path, so no validation case needed here.
     case 'batch_operations': {

@@ -1,5 +1,7 @@
 import {
   type AnyNodeId,
+  getCatalogMaterialById,
+  normalizeWallCurveOffset,
   type WallNode,
   useScene,
 } from '@aedifex/core'
@@ -7,10 +9,12 @@ import { useViewer } from '@aedifex/viewer'
 import type {
   AddWallToolCall,
   RemoveNodeToolCall,
+  UpdateWallMaterialToolCall,
   UpdateWallToolCall,
   ValidatedAddWall,
   ValidatedRemoveNode,
   ValidatedUpdateWall,
+  ValidatedUpdateWallMaterial,
 } from '../types'
 import { computeCollinearOverlap, wallsCrossThrough } from './collision-detection'
 import { resolveEffectiveLevelId } from './spatial-queries'
@@ -155,15 +159,36 @@ export function validateAddWall(call: AddWallToolCall, wallCache?: Map<string, W
   const wasAdjusted = snappedStart[0] !== start[0] || snappedStart[1] !== start[1]
     || snappedEnd[0] !== end[0] || snappedEnd[1] !== end[1]
 
+  // Clamp curveOffset to [-chordLength/2, chordLength/2] so the LLM sees the
+  // adjustment instead of a silent renderer-side clamp.
+  let finalCurveOffset = call.curveOffset
+  let curveAdjustment: string | undefined
+  if (call.curveOffset !== undefined) {
+    const clamped = normalizeWallCurveOffset(
+      { start: snappedStart, end: snappedEnd },
+      call.curveOffset,
+    )
+    if (clamped !== call.curveOffset) {
+      finalCurveOffset = clamped
+      curveAdjustment = `curveOffset clamped from ${call.curveOffset} to ${clamped} (max = chord length / 2 ≈ ${(length / 2).toFixed(2)}m).`
+    }
+  }
+
+  const reasons = [
+    wasAdjusted ? 'Snapped to 0.5m grid.' : undefined,
+    curveAdjustment,
+  ].filter((s): s is string => Boolean(s))
+
   return {
     type: 'add_wall',
-    status: wasAdjusted ? 'adjusted' : 'valid',
+    status: reasons.length > 0 ? 'adjusted' : 'valid',
     start: snappedStart,
     end: snappedEnd,
     thickness,
     height,
+    curveOffset: finalCurveOffset,
     levelId: effectiveLevelId ?? undefined,
-    adjustmentReason: wasAdjusted ? 'Snapped to 0.5m grid.' : undefined,
+    adjustmentReason: reasons.length > 0 ? reasons.join(' ') : undefined,
   }
 }
 
@@ -189,12 +214,12 @@ export function validateUpdateWall(call: UpdateWallToolCall, _wallCache?: Map<st
     }
   }
 
-  if (!call.height && !call.thickness && !call.start && !call.end) {
+  if (!call.height && !call.thickness && !call.start && !call.end && call.curveOffset === undefined) {
     return {
       type: 'update_wall',
       status: 'invalid',
       nodeId: call.nodeId as AnyNodeId,
-      errorReason: 'No properties to update. Provide height, thickness, start, and/or end.',
+      errorReason: 'No properties to update. Provide height, thickness, start, end, and/or curveOffset.',
     }
   }
 
@@ -238,6 +263,21 @@ export function validateUpdateWall(call: UpdateWallToolCall, _wallCache?: Map<st
     }
   }
 
+  // Clamp curveOffset against the resulting (possibly updated) chord.
+  let finalUpdateCurveOffset = call.curveOffset
+  if (call.curveOffset !== undefined) {
+    const wall = node as WallNode
+    const effStart = start ?? (wall.start as [number, number])
+    const effEnd = end ?? (wall.end as [number, number])
+    const clamped = normalizeWallCurveOffset({ start: effStart, end: effEnd }, call.curveOffset)
+    if (clamped !== call.curveOffset) {
+      finalUpdateCurveOffset = clamped
+      const chord = Math.hypot(effEnd[0] - effStart[0], effEnd[1] - effStart[1])
+      const note = `curveOffset clamped from ${call.curveOffset} to ${clamped} (max = chord length / 2 ≈ ${(chord / 2).toFixed(2)}m).`
+      adjustmentReason = adjustmentReason ? `${adjustmentReason} ${note}` : note
+    }
+  }
+
   return {
     type: 'update_wall',
     status: adjustmentReason ? 'adjusted' : 'valid',
@@ -246,7 +286,71 @@ export function validateUpdateWall(call: UpdateWallToolCall, _wallCache?: Map<st
     thickness: call.thickness,
     start,
     end,
+    curveOffset: finalUpdateCurveOffset,
     adjustmentReason,
+  }
+}
+
+const VALID_WALL_SIDES = new Set(['interior', 'exterior', 'both'])
+
+export function validateUpdateWallMaterial(call: UpdateWallMaterialToolCall): ValidatedUpdateWallMaterial {
+  const { nodes } = useScene.getState()
+  const node = nodes[call.nodeId as AnyNodeId]
+
+  if (!node) {
+    return {
+      type: 'update_wall_material',
+      status: 'invalid',
+      nodeId: call.nodeId as AnyNodeId,
+      side: call.side,
+      errorReason: `Wall "${call.nodeId}" not found.`,
+    }
+  }
+  if (node.type !== 'wall') {
+    return {
+      type: 'update_wall_material',
+      status: 'invalid',
+      nodeId: call.nodeId as AnyNodeId,
+      side: call.side,
+      errorReason: `Node "${call.nodeId}" is a ${node.type}, not a wall. Use update_material for non-wall nodes.`,
+    }
+  }
+  if (!VALID_WALL_SIDES.has(call.side)) {
+    return {
+      type: 'update_wall_material',
+      status: 'invalid',
+      nodeId: call.nodeId as AnyNodeId,
+      side: call.side,
+      errorReason: `Invalid side "${call.side}". Must be one of: interior, exterior, both.`,
+    }
+  }
+  if (!call.materialPreset && !call.materialColor) {
+    return {
+      type: 'update_wall_material',
+      status: 'invalid',
+      nodeId: call.nodeId as AnyNodeId,
+      side: call.side,
+      errorReason: 'Provide either materialPreset (catalog ID) or materialColor (hex).',
+    }
+  }
+
+  if (call.materialPreset && !getCatalogMaterialById(call.materialPreset)) {
+    return {
+      type: 'update_wall_material',
+      status: 'invalid',
+      nodeId: call.nodeId as AnyNodeId,
+      side: call.side,
+      errorReason: `Catalog preset "${call.materialPreset}" not found. Use materialColor with a hex value, or pick an existing wall preset id (e.g. "wall-wood1", "wall-brick1").`,
+    }
+  }
+
+  return {
+    type: 'update_wall_material',
+    status: 'valid',
+    nodeId: call.nodeId as AnyNodeId,
+    side: call.side,
+    materialPreset: call.materialPreset,
+    materialColor: call.materialColor,
   }
 }
 

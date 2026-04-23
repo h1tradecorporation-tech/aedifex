@@ -4,7 +4,7 @@ import { useViewer } from '@aedifex/viewer'
 import { useAIChat } from './ai-chat-store'
 import { polygonArea } from './mutation/validate-structure'
 import { analyzeRoom, formatRoomAnalysis } from './room-analyzer'
-import type { SceneContext, SceneCeilingSummary, SceneLevelSummary, SceneRoofSummary, SceneSlabSummary, SceneStairSummary, SceneItemSummary } from './types'
+import type { SceneContext, SceneCeilingSummary, SceneFenceSummary, SceneLevelSummary, SceneRoofSummary, SceneSlabSummary, SceneStairSummary, SceneItemSummary } from './types'
 
 // ============================================================================
 // Scene Context Cache
@@ -95,12 +95,32 @@ function serializeWallNode(
     }
   }
 
+  const wallWithSurface = wallNode as WallNode & {
+    interiorMaterial?: unknown
+    interiorMaterialPreset?: string
+    exteriorMaterial?: unknown
+    exteriorMaterialPreset?: string
+    material?: unknown
+    materialPreset?: string
+  }
+  const hasWallMaterial =
+    wallWithSurface.interiorMaterial !== undefined
+    || typeof wallWithSurface.interiorMaterialPreset === 'string'
+    || wallWithSurface.exteriorMaterial !== undefined
+    || typeof wallWithSurface.exteriorMaterialPreset === 'string'
+    || wallWithSurface.material !== undefined
+    || typeof wallWithSurface.materialPreset === 'string'
+
   walls.push({
     id: wallNode.id,
     start: [...wallNode.start] as [number, number],
     end: [...wallNode.end] as [number, number],
     thickness: wallNode.thickness ?? 0.2,
     length: wallLen,
+    ...(typeof wallNode.curveOffset === 'number' && wallNode.curveOffset !== 0
+      ? { curveOffset: wallNode.curveOffset }
+      : {}),
+    ...(hasWallMaterial ? { hasMaterial: true } : {}),
     children: wallChildren,
   })
 }
@@ -173,7 +193,13 @@ function serializeRoofNode(
       width: (seg as { width?: number }).width ?? 0,
       depth: (seg as { depth?: number }).depth ?? 0,
     }))
-  roofs.push({ id: node.id, segments })
+  const r = node as { material?: unknown; materialPreset?: string; topMaterial?: unknown; topMaterialPreset?: string; edgeMaterial?: unknown; edgeMaterialPreset?: string; wallMaterial?: unknown; wallMaterialPreset?: string }
+  const hasRoofMaterial =
+    r.material !== undefined || typeof r.materialPreset === 'string'
+    || r.topMaterial !== undefined || typeof r.topMaterialPreset === 'string'
+    || r.edgeMaterial !== undefined || typeof r.edgeMaterialPreset === 'string'
+    || r.wallMaterial !== undefined || typeof r.wallMaterialPreset === 'string'
+  roofs.push({ id: node.id, ...(hasRoofMaterial ? { hasMaterial: true } : {}), segments })
 }
 
 function serializeStairNode(
@@ -195,11 +221,80 @@ function serializeStairNode(
       stepCount: (seg as { stepCount?: number }).stepCount ?? 10,
       attachmentSide: (seg as { attachmentSide?: string }).attachmentSide ?? 'front',
     }))
+  const s = node as {
+    position: [number, number, number]
+    rotation: number
+    stairType?: string
+    width?: number
+    totalRise?: number
+    stepCount?: number
+    slabOpeningMode?: string
+    innerRadius?: number
+    sweepAngle?: number
+    topLandingMode?: string
+    railingMode?: string
+    material?: unknown
+    materialPreset?: string
+    railingMaterial?: unknown
+    railingMaterialPreset?: string
+    treadMaterial?: unknown
+    treadMaterialPreset?: string
+    sideMaterial?: unknown
+    sideMaterialPreset?: string
+  }
+  const hasStairMaterial =
+    s.material !== undefined || typeof s.materialPreset === 'string'
+    || s.railingMaterial !== undefined || typeof s.railingMaterialPreset === 'string'
+    || s.treadMaterial !== undefined || typeof s.treadMaterialPreset === 'string'
+    || s.sideMaterial !== undefined || typeof s.sideMaterialPreset === 'string'
+
   stairs.push({
     id: node.id,
-    position: (node as { position: [number, number, number] }).position,
-    rotation: (node as { rotation: number }).rotation,
+    position: s.position,
+    rotation: s.rotation,
+    ...(s.stairType ? { stairType: s.stairType } : {}),
+    ...(typeof s.width === 'number' ? { width: s.width } : {}),
+    ...(typeof s.totalRise === 'number' ? { totalRise: s.totalRise } : {}),
+    ...(typeof s.stepCount === 'number' ? { stepCount: s.stepCount } : {}),
+    ...(s.slabOpeningMode && s.slabOpeningMode !== 'none' ? { slabOpeningMode: s.slabOpeningMode } : {}),
+    ...(typeof s.innerRadius === 'number' && s.stairType !== 'straight' ? { innerRadius: s.innerRadius } : {}),
+    ...(typeof s.sweepAngle === 'number' && s.stairType !== 'straight' ? { sweepAngle: s.sweepAngle } : {}),
+    ...(s.topLandingMode && s.topLandingMode !== 'none' ? { topLandingMode: s.topLandingMode } : {}),
+    ...(s.railingMode && s.railingMode !== 'none' ? { railingMode: s.railingMode } : {}),
+    ...(hasStairMaterial ? { hasMaterial: true } : {}),
     segments: stairSegments,
+  })
+}
+
+function serializeFenceNode(
+  node: AnyNode,
+  fences: SceneFenceSummary[],
+): void {
+  const f = node as {
+    id: string
+    start: [number, number]
+    end: [number, number]
+    height?: number
+    thickness?: number
+    style?: 'slat' | 'rail' | 'privacy'
+    baseStyle?: 'floating' | 'grounded'
+    color?: string
+    curveOffset?: number
+    material?: unknown
+    materialPreset?: string
+  }
+  const hasFenceMaterial = f.material !== undefined || typeof f.materialPreset === 'string'
+  fences.push({
+    id: f.id,
+    start: [...f.start] as [number, number],
+    end: [...f.end] as [number, number],
+    height: f.height ?? 1.8,
+    thickness: f.thickness ?? 0.08,
+    style: f.style ?? 'slat',
+    baseStyle: f.baseStyle ?? 'grounded',
+    ...(typeof f.curveOffset === 'number' && f.curveOffset !== 0 ? { curveOffset: f.curveOffset } : {}),
+    ...(f.color ? { color: f.color } : {}),
+    ...(hasFenceMaterial ? { hasMaterial: true } : {}),
   })
 }
 
@@ -240,6 +335,7 @@ export function serializeSceneContext(): SceneContext {
       roofs: [],
       slabs: [],
       stairs: [],
+      fences: [],
       wallCount: 0,
       zoneCount: 0,
     }
@@ -252,6 +348,7 @@ export function serializeSceneContext(): SceneContext {
   const roofs: SceneRoofSummary[] = []
   const slabs: SceneSlabSummary[] = []
   const stairs: SceneStairSummary[] = []
+  const fences: SceneFenceSummary[] = []
   let wallCount = 0
   let zoneCount = 0
   let activeZone: SceneContext['activeZone'] | undefined
@@ -259,7 +356,7 @@ export function serializeSceneContext(): SceneContext {
   // Collect all nodes belonging to this level
   const levelNode = nodes[levelId]
   if (!levelNode || !('children' in levelNode)) {
-    return { levelId, items: [], walls: [], zones: [], levels: [], buildings: [], ceilings: [], roofs: [], slabs: [], stairs: [], wallCount: 0, zoneCount: 0 }
+    return { levelId, items: [], walls: [], zones: [], levels: [], buildings: [], ceilings: [], roofs: [], slabs: [], stairs: [], fences: [], wallCount: 0, zoneCount: 0 }
   }
 
   // Walk through all nodes to find items, walls, and zones on this level
@@ -310,6 +407,9 @@ export function serializeSceneContext(): SceneContext {
         break
       case 'stair':
         serializeStairNode(node, nodes, stairs)
+        break
+      case 'fence':
+        serializeFenceNode(node, fences)
         break
     }
 
@@ -372,6 +472,7 @@ export function serializeSceneContext(): SceneContext {
     roofs,
     slabs,
     stairs,
+    fences,
     wallCount,
     zoneCount,
     activeZone,
@@ -393,7 +494,7 @@ export function serializeSceneContext(): SceneContext {
 export function formatSceneContextForPrompt(ctx: SceneContext): string {
   const lines: string[] = [
     `Current scene (level: ${ctx.levelId}):`,
-    `- ${ctx.wallCount} walls, ${ctx.zoneCount} zones, ${ctx.ceilings.length} ceilings, ${ctx.roofs.length} roofs, ${ctx.slabs.length} slabs, ${ctx.stairs.length} stairs`,
+    `- ${ctx.wallCount} walls, ${ctx.zoneCount} zones, ${ctx.ceilings.length} ceilings, ${ctx.roofs.length} roofs, ${ctx.slabs.length} slabs, ${ctx.stairs.length} stairs, ${ctx.fences.length} fences`,
   ]
 
   // Building info (site-level)
@@ -447,7 +548,24 @@ export function formatSceneContextForPrompt(ctx: SceneContext): string {
       const segDescs = st.segments.map((s) =>
         `${s.segmentType} ${s.width}×${s.length}m h=${s.height}m (${s.stepCount} steps, ${s.attachmentSide})`,
       ).join(', ')
-      lines.push(`  - ${st.id}: pos=[${st.position.map((v) => v.toFixed(1)).join(',')}] rot=${st.rotation.toFixed(2)}rad, ${st.segments.length} segment(s) — ${segDescs}`)
+      const containerExtras: string[] = []
+      if (st.stairType && st.stairType !== 'straight') containerExtras.push(`type=${st.stairType}`)
+      if (st.slabOpeningMode && st.slabOpeningMode !== 'none') containerExtras.push(`slabOpening=${st.slabOpeningMode}`)
+      if (st.railingMode && st.railingMode !== 'none') containerExtras.push(`railing=${st.railingMode}`)
+      if (st.hasMaterial) containerExtras.push('hasMaterial')
+      const extra = containerExtras.length > 0 ? ` [${containerExtras.join(', ')}]` : ''
+      lines.push(`  - ${st.id}: pos=[${st.position.map((v) => v.toFixed(1)).join(',')}] rot=${st.rotation.toFixed(2)}rad, ${st.segments.length} segment(s) — ${segDescs}${extra}`)
+    }
+  }
+
+  // Fence info
+  if (ctx.fences.length > 0) {
+    lines.push(`\nFences (${ctx.fences.length}):`)
+    for (const f of ctx.fences) {
+      const start = f.start.map((v) => v.toFixed(1)).join(',')
+      const end = f.end.map((v) => v.toFixed(1)).join(',')
+      const curve = typeof f.curveOffset === 'number' ? ` curveOffset=${f.curveOffset.toFixed(2)}` : ''
+      lines.push(`  - ${f.id}: [${start}]→[${end}] h=${f.height}m thick=${f.thickness}m style=${f.style} base=${f.baseStyle}${curve}${f.color ? ` color=${f.color}` : ''}`)
     }
   }
 
@@ -524,7 +642,11 @@ export function formatSceneContextForPrompt(ctx: SceneContext): string {
     for (const info of wallInfos) {
       const { wall, length, orientation } = info
       const isLongest = info === longestWall ? ' [LONGEST]' : ''
-      lines.push(`  [${wall.id}] (${wall.start[0].toFixed(2)}, ${wall.start[1].toFixed(2)}) → (${wall.end[0].toFixed(2)}, ${wall.end[1].toFixed(2)}) length=${length.toFixed(2)}m ${orientation}${isLongest}`)
+      const wallTags: string[] = []
+      if (typeof wall.curveOffset === 'number') wallTags.push(`curveOffset=${wall.curveOffset.toFixed(2)}`)
+      if (wall.hasMaterial) wallTags.push('hasMaterial')
+      const wallTagStr = wallTags.length > 0 ? ` [${wallTags.join(', ')}]` : ''
+      lines.push(`  [${wall.id}] (${wall.start[0].toFixed(2)}, ${wall.start[1].toFixed(2)}) → (${wall.end[0].toFixed(2)}, ${wall.end[1].toFixed(2)}) length=${length.toFixed(2)}m ${orientation}${isLongest}${wallTagStr}`)
 
       // Show doors/windows on this wall
       if (wall.children && wall.children.length > 0) {

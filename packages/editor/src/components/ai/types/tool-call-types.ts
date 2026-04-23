@@ -35,12 +35,49 @@ export interface UpdateMaterialToolCall {
   reason?: string
 }
 
+/** Update wall surface material (interior or exterior side). */
+export interface UpdateWallMaterialToolCall {
+  tool: 'update_wall_material'
+  nodeId: string
+  /** Which face to apply material to. Use 'both' to set the legacy single-face material. */
+  side: 'interior' | 'exterior' | 'both'
+  /** Material catalog ID (preset). Mutually exclusive with materialColor. */
+  materialPreset?: string
+  /** Color value (hex string). Mutually exclusive with materialPreset. */
+  materialColor?: string
+  reason?: string
+}
+
+/** Update roof surface material per role (top sheet, edge fascia, gable wall). */
+export interface UpdateRoofMaterialToolCall {
+  tool: 'update_roof_material'
+  nodeId: string
+  /** Which roof surface to apply material to. */
+  role: 'top' | 'edge' | 'wall'
+  materialPreset?: string
+  materialColor?: string
+  reason?: string
+}
+
+/** Update stair surface material per role (railing, tread, side). */
+export interface UpdateStairMaterialToolCall {
+  tool: 'update_stair_material'
+  nodeId: string
+  /** Which stair surface to apply material to. */
+  role: 'railing' | 'tread' | 'side'
+  materialPreset?: string
+  materialColor?: string
+  reason?: string
+}
+
 export interface AddWallToolCall {
   tool: 'add_wall'
   start: [number, number]
   end: [number, number]
   thickness?: number
   height?: number
+  /** Midpoint sagitta offset to bend the wall into an arc (positive/negative meters). */
+  curveOffset?: number
   /** Target level ID. When omitted, uses the currently selected level in the viewer. */
   levelId?: string
   description?: string
@@ -53,6 +90,7 @@ export interface UpdateWallToolCall {
   thickness?: number
   start?: [number, number]
   end?: [number, number]
+  curveOffset?: number
   reason?: string
 }
 
@@ -180,6 +218,11 @@ export interface UpdateRoofToolCall {
   reason?: string
 }
 
+export type StairKind = 'straight' | 'curved' | 'spiral'
+export type StairSlabOpening = 'none' | 'destination'
+export type StairTopLanding = 'none' | 'integrated'
+export type StairRailing = 'none' | 'left' | 'right' | 'both'
+
 export interface AddStairToolCall {
   tool: 'add_stair'
   position: [number, number, number]
@@ -188,6 +231,28 @@ export interface AddStairToolCall {
   length?: number
   height?: number
   stepCount?: number
+  /** Stair geometry kind. */
+  stairType?: StairKind
+  /** Whether to auto-cut destination-level slab/ceiling. */
+  slabOpeningMode?: StairSlabOpening
+  openingOffset?: number
+  fillToFloor?: boolean
+  /** Curved stair: inner radius (meters). */
+  innerRadius?: number
+  /** Curved stair: total sweep (radians). */
+  sweepAngle?: number
+  /** Spiral stair: integrated top landing mode. */
+  topLandingMode?: StairTopLanding
+  topLandingDepth?: number
+  showCenterColumn?: boolean
+  showStepSupports?: boolean
+  /** Railing rendering mode. */
+  railingMode?: StairRailing
+  railingHeight?: number
+  /** Source level for auto cutout (defaults to current). */
+  fromLevelId?: string | null
+  /** Destination level for auto cutout (defaults to next level above). */
+  toLevelId?: string | null
   /** Target level ID. When omitted, uses the currently selected level in the viewer. */
   levelId?: string
   description?: string
@@ -202,6 +267,20 @@ export interface UpdateStairToolCall {
   length?: number
   height?: number
   stepCount?: number
+  stairType?: StairKind
+  slabOpeningMode?: StairSlabOpening
+  openingOffset?: number
+  fillToFloor?: boolean
+  innerRadius?: number
+  sweepAngle?: number
+  topLandingMode?: StairTopLanding
+  topLandingDepth?: number
+  showCenterColumn?: boolean
+  showStepSupports?: boolean
+  railingMode?: StairRailing
+  railingHeight?: number
+  fromLevelId?: string | null
+  toLevelId?: string | null
   reason?: string
 }
 
@@ -313,6 +392,8 @@ export interface AddFenceToolCall {
   baseStyle?: 'floating' | 'grounded'
   color?: string
   postSpacing?: number
+  /** Midpoint sagitta offset to bend the fence into an arc (positive/negative meters). */
+  curveOffset?: number
   /** Target level ID. When omitted, uses the currently selected level in the viewer. */
   levelId?: string
   description?: string
@@ -330,6 +411,7 @@ export interface UpdateFenceToolCall {
   baseStyle?: 'floating' | 'grounded'
   color?: string
   postSpacing?: number
+  curveOffset?: number
   reason?: string
 }
 
@@ -408,3 +490,6 @@ export type AIToolCall =
   | AddFenceToolCall
   | UpdateFenceToolCall
   | AddCutOutToolCall
+  | UpdateWallMaterialToolCall
+  | UpdateRoofMaterialToolCall
+  | UpdateStairMaterialToolCall
