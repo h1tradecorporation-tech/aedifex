@@ -22,6 +22,7 @@ import {
   isValidWallSideFace,
   snapToHalf,
 } from '../item/placement-math'
+import { getPendingGhostRemovalIds } from '../../ai/preview/ghost-node-helpers'
 import { clampToWall, hasWallChildOverlap, wallLocalToWorld } from './window-math'
 
 const edgeMaterial = new LineBasicNodeMaterial({
@@ -155,6 +156,7 @@ export const MoveWindowTool: React.FC<{ node: WindowNode }> = ({ node: movingWin
         movingWindowNode.width,
         movingWindowNode.height,
         movingWindowNode.id,
+        getPendingGhostRemovalIds(),
       )
 
       updateCursor(
@@ -224,6 +226,7 @@ export const MoveWindowTool: React.FC<{ node: WindowNode }> = ({ node: movingWin
         movingWindowNode.width,
         movingWindowNode.height,
         movingWindowNode.id,
+        getPendingGhostRemovalIds(),
       )
 
       updateCursor(
@@ -266,6 +269,7 @@ export const MoveWindowTool: React.FC<{ node: WindowNode }> = ({ node: movingWin
         movingWindowNode.width,
         movingWindowNode.height,
         movingWindowNode.id,
+        getPendingGhostRemovalIds(),
       )
       if (!valid) return
 

@@ -31,9 +31,26 @@ export function resolveEffectiveLevelId(explicitLevelId?: string): string | null
 }
 
 /**
+ * True when the node is a transient ghost preview (not yet confirmed) or a
+ * pending ghost removal. Mid-preview tool calls must not treat these as real
+ * geometry — otherwise validators reject placements against deleted walls or
+ * count walls that haven't been accepted yet. Mirrors the filter in
+ * ai-scene-serializer.ts so the LLM sees consistent reality across both
+ * scene summaries and spatial queries.
+ */
+function isGhostNode(node: AnyNode): boolean {
+  if ((node as { visible?: boolean }).visible === false) return true
+  const meta = node.metadata as Record<string, unknown> | undefined
+  return meta?.isGhostPreview === true || meta?.isGhostRemoval === true
+}
+
+/**
  * Collect all WallNode instances belonging to a given level.
  * Accepts an optional cache map to avoid redundant tree traversals
  * when called multiple times for the same level within a batch.
+ *
+ * Skips ghost-preview / ghost-removal walls so mid-preview validations
+ * see the same scene the LLM sees in summaries.
  */
 export function getWallsForLevel(levelId: string, wallCache?: Map<string, WallNode[]>): WallNode[] {
   if (wallCache) {
@@ -54,7 +71,7 @@ export function getWallsForLevel(levelId: string, wallCache?: Map<string, WallNo
     const node = nodes[nodeId as AnyNodeId] as AnyNode | undefined
     if (!node) continue
 
-    if (node.type === 'wall') {
+    if (node.type === 'wall' && !isGhostNode(node)) {
       walls.push(node as WallNode)
     }
     if ('children' in node && Array.isArray(node.children)) {
@@ -96,6 +113,9 @@ export function getLevelHeightContext(levelId: string): {
     visited.add(nid)
     const node = nodes[nid as AnyNodeId]
     if (!node) continue
+    // Same ghost filter as walls — ghost ceilings/items must not influence
+    // the height context the AI uses for placement decisions.
+    if (isGhostNode(node)) continue
     if (node.type === 'ceiling') {
       const cn = node as { id: string; height?: number; polygon: [number, number][] }
       ceilings.push({ id: cn.id, height: cn.height ?? 2.5, polygon: cn.polygon })
@@ -142,6 +162,7 @@ export function getMaxWallThickness(levelId: string): number {
 
 /**
  * Collect all ZoneNode instances belonging to a given level.
+ * Skips ghost zones for the same reason getWallsForLevel does.
  */
 export function getZonesForLevel(levelId: string): ZoneNode[] {
   const { nodes } = useScene.getState()
@@ -157,7 +178,7 @@ export function getZonesForLevel(levelId: string): ZoneNode[] {
     const node = nodes[nodeId as AnyNodeId] as AnyNode | undefined
     if (!node) continue
 
-    if (node.type === 'zone') {
+    if (node.type === 'zone' && !isGhostNode(node)) {
       zones.push(node as ZoneNode)
     }
     if ('children' in node && Array.isArray(node.children)) {

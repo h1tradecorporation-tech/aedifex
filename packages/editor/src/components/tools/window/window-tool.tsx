@@ -21,6 +21,7 @@ import {
   isValidWallSideFace,
   snapToHalf,
 } from '../item/placement-math'
+import { getPendingGhostRemovalIds } from '../../ai/preview/ghost-node-helpers'
 import { clampToWall, hasWallChildOverlap, wallLocalToWorld } from './window-math'
 
 // Shared edge material — reuse across renders, just toggle color
@@ -123,7 +124,7 @@ export const WindowTool: React.FC = () => {
       useScene.getState().createNode(node, event.node.id as AnyNodeId)
       draftRef.current = node
 
-      const valid = !hasWallChildOverlap(event.node.id, clampedX, clampedY, width, height, node.id)
+      const valid = !hasWallChildOverlap(event.node.id, clampedX, clampedY, width, height, node.id, getPendingGhostRemovalIds())
 
       updateCursor(
         wallLocalToWorld(
@@ -190,6 +191,7 @@ export const WindowTool: React.FC = () => {
         width,
         height,
         draftRef.current?.id,
+        getPendingGhostRemovalIds(),
       )
 
       updateCursor(
@@ -232,6 +234,7 @@ export const WindowTool: React.FC = () => {
         draftRef.current.width,
         draftRef.current.height,
         draftRef.current.id,
+        getPendingGhostRemovalIds(),
       )
       if (!valid) return
 

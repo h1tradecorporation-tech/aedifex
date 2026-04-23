@@ -21,6 +21,7 @@ import {
   isValidWallSideFace,
   snapToHalf,
 } from '../item/placement-math'
+import { getPendingGhostRemovalIds } from '../../ai/preview/ghost-node-helpers'
 import { clampToWall, hasWallChildOverlap, wallLocalToWorld } from './door-math'
 
 const edgeMaterial = new LineBasicNodeMaterial({
@@ -118,7 +119,7 @@ export const DoorTool: React.FC = () => {
       useScene.getState().createNode(node, event.node.id as AnyNodeId)
       draftRef.current = node
 
-      const valid = !hasWallChildOverlap(event.node.id, clampedX, clampedY, width, height, node.id)
+      const valid = !hasWallChildOverlap(event.node.id, clampedX, clampedY, width, height, node.id, getPendingGhostRemovalIds())
 
       updateCursor(
         wallLocalToWorld(
@@ -182,6 +183,7 @@ export const DoorTool: React.FC = () => {
         width,
         height,
         draftRef.current?.id,
+        getPendingGhostRemovalIds(),
       )
 
       updateCursor(
@@ -221,6 +223,7 @@ export const DoorTool: React.FC = () => {
         draftRef.current.width,
         draftRef.current.height,
         draftRef.current.id,
+        getPendingGhostRemovalIds(),
       )
       if (!valid) return
 

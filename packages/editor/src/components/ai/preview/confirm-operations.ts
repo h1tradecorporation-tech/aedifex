@@ -42,9 +42,12 @@ import type {
   ValidatedUpdateFence,
   ValidatedUpdateItem,
   ValidatedUpdateRoof,
+  ValidatedUpdateRoofMaterial,
   ValidatedUpdateSite,
   ValidatedUpdateSlab,
   ValidatedUpdateStair,
+  ValidatedUpdateStairMaterial,
+  ValidatedUpdateWallMaterial,
   ValidatedUpdateZone,
 } from '../types'
 import {
@@ -55,6 +58,51 @@ import {
   resetPreviewState,
   stripTransientMetadata,
 } from './ghost-node-helpers'
+
+/**
+ * Build a partial scene node update that sets either a material catalog preset
+ * or an inline color material on the requested fields. Returns null when no
+ * source value is provided.
+ *
+ * Catalog preset takes precedence over inline color when both are present.
+ *
+ * NOTE: MaterialSchema is { id?, preset?, properties?, texture? } — `color`
+ * lives under `properties.color`, NOT at the top level. resolveMaterial() reads
+ * material.properties, so writing `{ color }` directly is silently dropped.
+ */
+/** Whitelist of node fields that surface material writes are allowed to touch. */
+type SurfaceMaterialField =
+  | 'material' | 'materialPreset'
+  | 'interiorMaterial' | 'interiorMaterialPreset'
+  | 'exteriorMaterial' | 'exteriorMaterialPreset'
+  | 'topMaterial' | 'topMaterialPreset'
+  | 'edgeMaterial' | 'edgeMaterialPreset'
+  | 'wallMaterial' | 'wallMaterialPreset'
+  | 'railingMaterial' | 'railingMaterialPreset'
+  | 'treadMaterial' | 'treadMaterialPreset'
+  | 'sideMaterial' | 'sideMaterialPreset'
+
+function applySurfaceMaterialUpdate(input: {
+  preset?: string
+  color?: string
+  presetField: SurfaceMaterialField
+  materialField: SurfaceMaterialField
+}): Record<string, unknown> | null {
+  const { preset, color, presetField, materialField } = input
+  if (preset) {
+    return {
+      [presetField]: preset,
+      [materialField]: undefined,
+    }
+  }
+  if (color) {
+    return {
+      [presetField]: undefined,
+      [materialField]: { properties: { color } },
+    }
+  }
+  return null
+}
 
 /**
  * Confirm all ghost previews — make them permanent scene nodes.
@@ -78,9 +126,24 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
     return count
   }
 
-  // Capture previous snapshot for undo — deep copy nodes that will be modified/removed
+  // Capture previous snapshot for undo — deep copy nodes that will be modified/removed.
+  // CRITICAL: strip transient metadata (isGhostPreview, isTransient, previewMaterial)
+  // before storing. The snapshot is read at preview-application time, so the node
+  // already carries those flags. Undo restores via setNode (full replace), which
+  // would otherwise permanently embed transient flags into the post-undo state.
   const previousSnapshot: Record<AnyNodeId, AnyNode> = {}
   const removedNodesForUndo: { node: AnyNode; parentId: AnyNodeId }[] = []
+
+  const cleanSnapshot = (node: AnyNode): AnyNode => {
+    const cloned = structuredClone(node)
+    // metadata is JSONType (recursive). The strip returns a plain object whose
+    // values came from a JSONType, so the shape is JSON-compatible at runtime —
+    // cast through unknown to satisfy the recursive type.
+    ;(cloned as { metadata?: unknown }).metadata = stripTransientMetadata(
+      (cloned as { metadata?: unknown }).metadata,
+    ) as unknown as AnyNode['metadata']
+    return cloned
+  }
 
   for (const op of operations) {
     if (op.status === 'invalid') continue
@@ -89,16 +152,18 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
       if (nodeId) {
         const existingNode = nodes[nodeId]
         if (existingNode) {
-          previousSnapshot[nodeId] = structuredClone(existingNode)
+          previousSnapshot[nodeId] = cleanSnapshot(existingNode)
         }
       }
     }
   }
 
-  // Capture removed nodes with their parent info (for re-creation on undo)
+  // Capture removed nodes with their parent info (for re-creation on undo).
+  // Same metadata strip — the saved snapshot in markForGhostRemoval may contain
+  // ghost flags from a prior partial preview.
   removedNodeStates.forEach(({ node, parentId }, _nodeId) => {
     removedNodesForUndo.push({
-      node: structuredClone(node),
+      node: cleanSnapshot(node),
       parentId: parentId as AnyNodeId,
     })
   })
@@ -139,6 +204,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           end: op.end,
           ...(op.thickness !== 0.2 ? { thickness: op.thickness } : {}),
           ...(op.height ? { height: op.height } : {}),
+          ...(op.curveOffset !== undefined ? { curveOffset: op.curveOffset } : {}),
         })
         batchCreates.push({ node: wall, parentId: (op.levelId ?? levelId) as AnyNodeId })
         affectedNodeIds.push(wall.id as AnyNodeId)
@@ -214,16 +280,28 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
         break
       }
       case 'update_material': {
-        // Restore original, then apply material
+        // Restore original, then apply material to the node's `material` field.
+        // The `material` field is the legacy single-face slot present on every
+        // structural/furniture node. For per-side/per-role materials use the
+        // dedicated update_wall_material/update_roof_material/update_stair_material
+        // tools instead.
         const original = originalNodeStates.get(op.nodeId)
         if (original) {
           useScene.getState().updateNode(op.nodeId, {
             metadata: original.metadata,
           })
         }
+        // Decide preset vs inline color: catalog ids never start with '#' and are
+        // resolvable by getCatalogMaterialById, hex colors always start with '#'.
+        // Accept only canonical hex lengths (3/4/6/8) — bare 5/7-char hex isn't valid CSS.
+        const isHexColor = typeof op.material === 'string'
+          && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(op.material)
+        const materialUpdate: Record<string, unknown> = isHexColor
+          ? { materialPreset: undefined, material: { properties: { color: op.material } } }
+          : { material: undefined, materialPreset: op.material }
         useScene.getState().updateNode(op.nodeId, {
           metadata: stripTransientMetadata(nodes[op.nodeId]?.metadata) as Record<string, never>,
-          // material: op.material, // Material field depends on node schema
+          ...materialUpdate,
         })
         affectedNodeIds.push(op.nodeId)
         break
@@ -240,6 +318,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
         if (op.thickness !== undefined) updates.thickness = op.thickness
         if (op.start) updates.start = op.start
         if (op.end) updates.end = op.end
+        if (op.curveOffset !== undefined) updates.curveOffset = op.curveOffset
         useScene.getState().updateNode(op.nodeId, updates)
         affectedNodeIds.push(op.nodeId)
         break
@@ -356,41 +435,88 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
       case 'add_stair': {
         const stairOp = op as ValidatedAddStair
         const stairCount = getCachedTypeCount('stair')
-        const segment = StairSegmentNode.parse({
-          segmentType: 'stair',
-          width: stairOp.width,
-          length: stairOp.length,
-          height: stairOp.height,
-          stepCount: stairOp.stepCount,
-          attachmentSide: 'front',
-          fillToFloor: true,
-          position: [0, 0, 0],
-        })
+        // Curved/spiral stairs use container-level geometry only and ignore segments —
+        // creating one would be dead state. Only straight stairs need a segment child.
+        const isStraight = !stairOp.stairType || stairOp.stairType === 'straight'
+        const segment = isStraight
+          ? StairSegmentNode.parse({
+              segmentType: 'stair',
+              width: stairOp.width,
+              length: stairOp.length,
+              height: stairOp.height,
+              stepCount: stairOp.stepCount,
+              attachmentSide: 'front',
+              fillToFloor: stairOp.fillToFloor ?? true,
+              position: [0, 0, 0],
+            })
+          : null
         const stair = StairNode.parse({
           name: `Staircase ${stairCount + 1}`,
           position: stairOp.position,
           rotation: stairOp.rotation,
-          children: [segment.id],
+          width: stairOp.width,
+          totalRise: stairOp.height,
+          stepCount: stairOp.stepCount,
+          children: segment ? [segment.id] : [],
+          ...(stairOp.stairType ? { stairType: stairOp.stairType } : {}),
+          ...(stairOp.slabOpeningMode ? { slabOpeningMode: stairOp.slabOpeningMode } : {}),
+          ...(stairOp.openingOffset !== undefined ? { openingOffset: stairOp.openingOffset } : {}),
+          ...(stairOp.fillToFloor !== undefined ? { fillToFloor: stairOp.fillToFloor } : {}),
+          ...(stairOp.innerRadius !== undefined ? { innerRadius: stairOp.innerRadius } : {}),
+          ...(stairOp.sweepAngle !== undefined ? { sweepAngle: stairOp.sweepAngle } : {}),
+          ...(stairOp.topLandingMode ? { topLandingMode: stairOp.topLandingMode } : {}),
+          ...(stairOp.topLandingDepth !== undefined ? { topLandingDepth: stairOp.topLandingDepth } : {}),
+          ...(stairOp.showCenterColumn !== undefined ? { showCenterColumn: stairOp.showCenterColumn } : {}),
+          ...(stairOp.showStepSupports !== undefined ? { showStepSupports: stairOp.showStepSupports } : {}),
+          ...(stairOp.railingMode ? { railingMode: stairOp.railingMode } : {}),
+          ...(stairOp.railingHeight !== undefined ? { railingHeight: stairOp.railingHeight } : {}),
+          ...(stairOp.fromLevelId !== undefined ? { fromLevelId: stairOp.fromLevelId } : {}),
+          ...(stairOp.toLevelId !== undefined ? { toLevelId: stairOp.toLevelId } : {}),
         })
         const { createNodes } = useScene.getState()
-        createNodes([
-          { node: stair, parentId: (stairOp.levelId ?? levelId) as AnyNodeId },
-          { node: segment, parentId: stair.id as AnyNodeId },
-        ])
-        affectedNodeIds.push(stair.id as AnyNodeId, segment.id as AnyNodeId)
-        createdNodeIds.push(stair.id as AnyNodeId, segment.id as AnyNodeId)
+        if (segment) {
+          createNodes([
+            { node: stair, parentId: (stairOp.levelId ?? levelId) as AnyNodeId },
+            { node: segment, parentId: stair.id as AnyNodeId },
+          ])
+          affectedNodeIds.push(stair.id as AnyNodeId, segment.id as AnyNodeId)
+          createdNodeIds.push(stair.id as AnyNodeId, segment.id as AnyNodeId)
+        } else {
+          createNodes([
+            { node: stair, parentId: (stairOp.levelId ?? levelId) as AnyNodeId },
+          ])
+          affectedNodeIds.push(stair.id as AnyNodeId)
+          createdNodeIds.push(stair.id as AnyNodeId)
+        }
         break
       }
       case 'update_stair': {
         const uStairOp = op as ValidatedUpdateStair
-        // Update stair container (position, rotation)
+        // Update stair container (position, rotation, geometry-level fields)
         const stairUpdates: Record<string, unknown> = {}
         if (uStairOp.position) stairUpdates.position = uStairOp.position
         if (uStairOp.rotation !== undefined) stairUpdates.rotation = uStairOp.rotation
+        if (uStairOp.width !== undefined) stairUpdates.width = uStairOp.width
+        if (uStairOp.height !== undefined) stairUpdates.totalRise = uStairOp.height
+        if (uStairOp.stepCount !== undefined) stairUpdates.stepCount = uStairOp.stepCount
+        if (uStairOp.stairType) stairUpdates.stairType = uStairOp.stairType
+        if (uStairOp.slabOpeningMode) stairUpdates.slabOpeningMode = uStairOp.slabOpeningMode
+        if (uStairOp.openingOffset !== undefined) stairUpdates.openingOffset = uStairOp.openingOffset
+        if (uStairOp.fillToFloor !== undefined) stairUpdates.fillToFloor = uStairOp.fillToFloor
+        if (uStairOp.innerRadius !== undefined) stairUpdates.innerRadius = uStairOp.innerRadius
+        if (uStairOp.sweepAngle !== undefined) stairUpdates.sweepAngle = uStairOp.sweepAngle
+        if (uStairOp.topLandingMode) stairUpdates.topLandingMode = uStairOp.topLandingMode
+        if (uStairOp.topLandingDepth !== undefined) stairUpdates.topLandingDepth = uStairOp.topLandingDepth
+        if (uStairOp.showCenterColumn !== undefined) stairUpdates.showCenterColumn = uStairOp.showCenterColumn
+        if (uStairOp.showStepSupports !== undefined) stairUpdates.showStepSupports = uStairOp.showStepSupports
+        if (uStairOp.railingMode) stairUpdates.railingMode = uStairOp.railingMode
+        if (uStairOp.railingHeight !== undefined) stairUpdates.railingHeight = uStairOp.railingHeight
+        if (uStairOp.fromLevelId !== undefined) stairUpdates.fromLevelId = uStairOp.fromLevelId
+        if (uStairOp.toLevelId !== undefined) stairUpdates.toLevelId = uStairOp.toLevelId
         if (Object.keys(stairUpdates).length > 0) {
           useScene.getState().updateNode(uStairOp.nodeId, stairUpdates)
         }
-        // Update first child segment (width, length, height, stepCount)
+        // Mirror straight-stair segment fields when present
         const stairNode = nodes[uStairOp.nodeId]
         if (stairNode && 'children' in stairNode && Array.isArray(stairNode.children) && stairNode.children.length > 0) {
           const firstSegId = stairNode.children[0] as AnyNodeId
@@ -399,6 +525,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           if (uStairOp.length !== undefined) segUpdates.length = uStairOp.length
           if (uStairOp.height !== undefined) segUpdates.height = uStairOp.height
           if (uStairOp.stepCount !== undefined) segUpdates.stepCount = uStairOp.stepCount
+          if (uStairOp.fillToFloor !== undefined) segUpdates.fillToFloor = uStairOp.fillToFloor
           if (Object.keys(segUpdates).length > 0) {
             useScene.getState().updateNode(firstSegId, segUpdates)
             affectedNodeIds.push(firstSegId)
@@ -568,6 +695,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
           baseStyle: fenceOp.baseStyle,
           color: fenceOp.color,
           postSpacing: fenceOp.postSpacing,
+          ...(fenceOp.curveOffset !== undefined ? { curveOffset: fenceOp.curveOffset } : {}),
         })
         batchCreates.push({ node: fenceNode, parentId: (fenceOp.levelId ?? levelId) as AnyNodeId })
         affectedNodeIds.push(fenceNode.id as AnyNodeId)
@@ -585,6 +713,7 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
         if (uFenceOp.baseStyle) updates.baseStyle = uFenceOp.baseStyle
         if (uFenceOp.color) updates.color = uFenceOp.color
         if (uFenceOp.postSpacing !== undefined) updates.postSpacing = uFenceOp.postSpacing
+        if (uFenceOp.curveOffset !== undefined) updates.curveOffset = uFenceOp.curveOffset
         useScene.getState().updateNode(uFenceOp.nodeId, updates)
         affectedNodeIds.push(uFenceOp.nodeId)
         break
@@ -598,6 +727,72 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
             holes: [...currentHoles, cutOp.hole],
           })
           affectedNodeIds.push(cutOp.nodeId)
+        }
+        break
+      }
+      case 'update_wall_material': {
+        const uOp = op as ValidatedUpdateWallMaterial
+        const updates = applySurfaceMaterialUpdate({
+          preset: uOp.materialPreset,
+          color: uOp.materialColor,
+          presetField: uOp.side === 'interior'
+            ? 'interiorMaterialPreset'
+            : uOp.side === 'exterior'
+              ? 'exteriorMaterialPreset'
+              : 'materialPreset',
+          materialField: uOp.side === 'interior'
+            ? 'interiorMaterial'
+            : uOp.side === 'exterior'
+              ? 'exteriorMaterial'
+              : 'material',
+        })
+        if (updates) {
+          useScene.getState().updateNode(uOp.nodeId, updates)
+          affectedNodeIds.push(uOp.nodeId)
+        }
+        break
+      }
+      case 'update_roof_material': {
+        const uOp = op as ValidatedUpdateRoofMaterial
+        const updates = applySurfaceMaterialUpdate({
+          preset: uOp.materialPreset,
+          color: uOp.materialColor,
+          presetField: uOp.role === 'top'
+            ? 'topMaterialPreset'
+            : uOp.role === 'edge'
+              ? 'edgeMaterialPreset'
+              : 'wallMaterialPreset',
+          materialField: uOp.role === 'top'
+            ? 'topMaterial'
+            : uOp.role === 'edge'
+              ? 'edgeMaterial'
+              : 'wallMaterial',
+        })
+        if (updates) {
+          useScene.getState().updateNode(uOp.nodeId, updates)
+          affectedNodeIds.push(uOp.nodeId)
+        }
+        break
+      }
+      case 'update_stair_material': {
+        const uOp = op as ValidatedUpdateStairMaterial
+        const updates = applySurfaceMaterialUpdate({
+          preset: uOp.materialPreset,
+          color: uOp.materialColor,
+          presetField: uOp.role === 'railing'
+            ? 'railingMaterialPreset'
+            : uOp.role === 'tread'
+              ? 'treadMaterialPreset'
+              : 'sideMaterialPreset',
+          materialField: uOp.role === 'railing'
+            ? 'railingMaterial'
+            : uOp.role === 'tread'
+              ? 'treadMaterial'
+              : 'sideMaterial',
+        })
+        if (updates) {
+          useScene.getState().updateNode(uOp.nodeId, updates)
+          affectedNodeIds.push(uOp.nodeId)
         }
         break
       }
@@ -645,7 +840,10 @@ export function undoConfirmedOperation(log: AIOperationLog): void {
     }
   }
 
-  // Step 2: Restore modified nodes to their previous snapshot
+  // Step 2: Restore modified nodes to their previous snapshot.
+  // We use setNode (full replace) instead of updateNode (spread merge) because
+  // spread cannot clear keys the snapshot doesn't carry — a material write that
+  // added `material: {…}` to a node previously without it would survive an undo.
   const snapshotEntries = Object.entries(log.previousSnapshot) as [AnyNodeId, AnyNode][]
   for (const [nodeId, snapshot] of snapshotEntries) {
     // Skip nodes that were removed (handled in step 3)
@@ -653,16 +851,62 @@ export function undoConfirmedOperation(log: AIOperationLog): void {
 
     const currentNode = useScene.getState().nodes[nodeId]
     if (currentNode) {
-      useScene.getState().updateNode(nodeId, snapshot as Partial<AnyNode>)
+      useScene.getState().setNode(nodeId, snapshot)
     }
   }
 
-  // Step 3: Re-create nodes that were removed
-  for (const { node, parentId } of log.removedNodes) {
-    // Only re-create if the parent still exists
-    const parent = useScene.getState().nodes[parentId]
-    if (parent) {
-      useScene.getState().createNode(node, parentId)
+  // Step 3: Re-create nodes that were removed.
+  //
+  // markForGhostRemoval saves the whole subtree (parent + descendants), so
+  // log.removedNodes can contain unordered nodes whose parent might also be
+  // pending re-creation. We must topologically sort so each node's parent
+  // exists in the store before we create the node itself.
+  const removedById = new Map<string, { node: AnyNode; parentId: AnyNodeId }>()
+  for (const entry of log.removedNodes) {
+    const id = (entry.node as AnyNode & { id: string }).id
+    removedById.set(id, entry)
+  }
+
+  const sceneNodes = useScene.getState().nodes
+  const created = new Set<string>()
+  const visiting = new Set<string>()
+
+  function recreate(id: string): void {
+    if (created.has(id)) return
+    if (visiting.has(id)) return // cycle guard
+    visiting.add(id)
+    const entry = removedById.get(id)
+    if (!entry) return
+
+    const parentId = entry.parentId
+    // If parent is also pending re-creation, do it first.
+    if (parentId && removedById.has(parentId) && !created.has(parentId)) {
+      recreate(parentId)
     }
+
+    // Skip if parent doesn't exist in the store and isn't being re-created
+    // (parent may have been removed by something outside this operation).
+    const parentInStore = parentId ? useScene.getState().nodes[parentId as AnyNodeId] : null
+    if (parentId && !parentInStore && !created.has(parentId)) {
+      visiting.delete(id)
+      return
+    }
+
+    useScene.getState().createNode(entry.node, parentId as AnyNodeId)
+    created.add(id)
+    visiting.delete(id)
+  }
+
+  // Re-create roots first (those whose parents existed before this operation
+  // and are still in the store), then descendants by recursion above.
+  for (const [id, entry] of removedById) {
+    const parentInStore = entry.parentId ? sceneNodes[entry.parentId as AnyNodeId] : null
+    if (parentInStore || !removedById.has(entry.parentId)) {
+      recreate(id)
+    }
+  }
+  // Sweep any leftover nodes whose dependency chain wasn't reached above.
+  for (const id of removedById.keys()) {
+    recreate(id)
   }
 }

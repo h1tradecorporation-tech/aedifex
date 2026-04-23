@@ -3,14 +3,12 @@ import {
   type AnyNodeId,
   DoorNode,
   ItemNode,
+  type JSONType,
   WallNode as WallSchema,
   WindowNode,
   useScene,
 } from '@aedifex/core'
 import type { ValidatedAddDoor, ValidatedAddItem, ValidatedAddWall, ValidatedAddWindow, ValidatedMoveItem } from '../types'
-
-// Local replacement for zod's internal JSONType (not publicly exported in zod v4)
-type JSONType = string | number | boolean | null | JSONType[] | { [key: string]: JSONType }
 
 // ============================================================================
 // Module-level Preview State
@@ -35,6 +33,22 @@ export let isPreviewActive = false
 export function setIsPreviewActive(value: boolean): void {
   isPreviewActive = value
 }
+
+/**
+ * IDs of nodes that the AI has marked as pending removal (in ghost preview).
+ * Interactive tools (door/window placement, move) consult this so a user
+ * dragging into a previously-occupied slot is not blocked by a node that is
+ * about to be deleted on confirm.
+ *
+ * Returns an empty set when no preview is active — cheap to call on every
+ * pointer move.
+ */
+export function getPendingGhostRemovalIds(): ReadonlySet<string> {
+  if (!isPreviewActive || removedNodeStates.size === 0) return EMPTY_REMOVAL_SET
+  return new Set(removedNodeStates.keys())
+}
+
+const EMPTY_REMOVAL_SET: ReadonlySet<string> = new Set()
 
 export function resetPreviewState(): void {
   ghostNodeIds = []
@@ -89,6 +103,7 @@ export function createGhostWall(op: ValidatedAddWall, levelId: string): AnyNodeI
     end: op.end,
     ...(op.thickness !== 0.2 ? { thickness: op.thickness } : {}),
     ...(op.height ? { height: op.height } : {}),
+    ...(op.curveOffset !== undefined ? { curveOffset: op.curveOffset } : {}),
     metadata: { isTransient: true, isGhostPreview: true },
   })
   useScene.getState().createNode(wall, levelId as AnyNodeId)
@@ -134,16 +149,43 @@ export function markForGhostRemoval(op: { nodeId: AnyNodeId }, nodes: Record<Any
   const node = nodes[op.nodeId]
   if (!node) return
 
-  removedNodeStates.set(op.nodeId, {
-    node: { ...node },
-    parentId: (node.parentId as string) ?? '',
-  })
+  // Recursively save the requested node and ALL descendants so undo can fully
+  // restore the subtree. Without this, cascade-deleted children (doors/windows
+  // on a removed wall, items in a removed level, etc.) are gone forever after
+  // the user accepts and then undoes the removal.
+  const savedIds = new Set<string>()
+  const stack: AnyNodeId[] = [op.nodeId]
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    if (savedIds.has(id)) continue
+    savedIds.add(id)
+    const target = nodes[id]
+    if (!target) continue
 
-  // Hide the node (don't delete — we need to restore on reject)
-  useScene.getState().updateNode(op.nodeId, {
-    visible: false,
-    metadata: buildGhostMetadata(node.metadata, { isGhostRemoval: true }),
-  })
+    removedNodeStates.set(id, {
+      node: { ...target },
+      parentId: (target.parentId as string) ?? '',
+    })
+
+    if ('children' in target && Array.isArray(target.children)) {
+      for (const childId of target.children) {
+        stack.push(childId as AnyNodeId)
+      }
+    }
+  }
+
+  // Hide every saved node (root + descendants). If we only hid the root, a user
+  // previewing "delete this wall" would see the wall vanish but its doors and
+  // windows still floating in mid-air, which is confusing. Reject restores
+  // visibility from the snapshot, so this stays in sync.
+  for (const id of savedIds) {
+    const target = nodes[id as AnyNodeId]
+    if (!target) continue
+    useScene.getState().updateNode(id as AnyNodeId, {
+      visible: false,
+      metadata: buildGhostMetadata(target.metadata, { isGhostRemoval: true }),
+    })
+  }
 }
 
 export function applyMovePreview(op: ValidatedMoveItem, nodes: Record<AnyNodeId, AnyNode>): void {

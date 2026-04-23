@@ -373,16 +373,16 @@ describe('hasWallChildOverlap', () => {
     expect(result).toBe(false)
   })
 
-  it('skips children with isGhostRemoval metadata flag', () => {
-    const ghostDoor = {
-      ...makeDoor('door:1', 2, 1.05, 0.9, 2.1),
-      metadata: { isGhostRemoval: true },
-    }
+  it('skips children listed in pendingRemovalIds (ghost removal preview)', () => {
+    const existingDoor = makeDoor('door:1', 2, 1.05, 0.9, 2.1)
     const wall = makeWall('wall:1', [0, 0], [4, 0], ['door:1'])
     mockNodes['wall:1'] = wall
-    mockNodes['door:1'] = ghostDoor
+    mockNodes['door:1'] = existingDoor
 
-    const result = hasWallChildOverlap('wall:1', 2, 1.05, 0.9, 2.1)
+    // The preview manager passes pendingRemovalIds explicitly so callers stay
+    // pure functions instead of inspecting mutable metadata flags.
+    const pendingRemoval = new Set(['door:1'])
+    const result = hasWallChildOverlap('wall:1', 2, 1.05, 0.9, 2.1, undefined, pendingRemoval)
     expect(result).toBe(false)
   })
 

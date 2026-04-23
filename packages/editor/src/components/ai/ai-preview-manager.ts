@@ -117,6 +117,9 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
           }
           if (op.height !== undefined) updates.height = op.height
           if (op.thickness !== undefined) updates.thickness = op.thickness
+          if (op.start) updates.start = op.start
+          if (op.end) updates.end = op.end
+          if (op.curveOffset !== undefined) updates.curveOffset = op.curveOffset
           useScene.getState().updateNode(op.nodeId, updates)
           affectedIds.push(op.nodeId)
         }
@@ -171,7 +174,10 @@ export function applyGhostPreview(operations: ValidatedOperation[]): AnyNodeId[]
       case 'update_zone':
       case 'update_site':
       case 'update_item':
-      case 'update_fence': {
+      case 'update_fence':
+      case 'update_wall_material':
+      case 'update_roof_material':
+      case 'update_stair_material': {
         // Update operations — handled at confirm time
         break
       }

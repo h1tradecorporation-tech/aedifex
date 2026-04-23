@@ -22,6 +22,7 @@ import {
   isValidWallSideFace,
   snapToHalf,
 } from '../item/placement-math'
+import { getPendingGhostRemovalIds } from '../../ai/preview/ghost-node-helpers'
 import { clampToWall, hasWallChildOverlap, wallLocalToWorld } from './door-math'
 
 const edgeMaterial = new LineBasicNodeMaterial({
@@ -138,6 +139,7 @@ export const MoveDoorTool: React.FC<{ node: DoorNode }> = ({ node: movingDoorNod
         movingDoorNode.width,
         movingDoorNode.height,
         movingDoorNode.id,
+        getPendingGhostRemovalIds(),
       )
 
       updateCursor(
@@ -204,6 +206,7 @@ export const MoveDoorTool: React.FC<{ node: DoorNode }> = ({ node: movingDoorNod
         movingDoorNode.width,
         movingDoorNode.height,
         movingDoorNode.id,
+        getPendingGhostRemovalIds(),
       )
 
       updateCursor(
@@ -243,6 +246,7 @@ export const MoveDoorTool: React.FC<{ node: DoorNode }> = ({ node: movingDoorNod
         movingDoorNode.width,
         movingDoorNode.height,
         movingDoorNode.id,
+        getPendingGhostRemovalIds(),
       )
       if (!valid) return
 

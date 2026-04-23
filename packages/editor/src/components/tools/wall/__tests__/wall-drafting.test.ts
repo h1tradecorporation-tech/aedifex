@@ -82,8 +82,8 @@ describe('wall-drafting constants', () => {
     expect(WALL_JOIN_SNAP_RADIUS).toBe(0.35)
   })
 
-  it('WALL_MIN_LENGTH is 0.5', () => {
-    expect(WALL_MIN_LENGTH).toBe(0.5)
+  it('WALL_MIN_LENGTH is 0.01', () => {
+    expect(WALL_MIN_LENGTH).toBe(0.01)
   })
 })
 
@@ -385,34 +385,34 @@ describe('snapWallDraftPoint', () => {
 // ---------------------------------------------------------------------------
 
 describe('isWallLongEnough', () => {
-  it('returns true for a wall longer than minimum length (0.5)', () => {
+  it('returns true for a wall longer than minimum length (0.01)', () => {
     expect(isWallLongEnough([0, 0], [1, 0])).toBe(true)
     expect(isWallLongEnough([0, 0], [0, 2])).toBe(true)
     expect(isWallLongEnough([0, 0], [3, 4])).toBe(true) // length=5
   })
 
-  it('returns true for wall exactly at minimum length (0.5)', () => {
-    // distanceSquared([0,0],[0.5,0]) = 0.25 = 0.5*0.5 ✓
-    expect(isWallLongEnough([0, 0], [0.5, 0])).toBe(true)
+  it('returns true for wall exactly at minimum length (0.01)', () => {
+    // distanceSquared([0,0],[0.01,0]) = 0.0001 = 0.01*0.01 ✓
+    expect(isWallLongEnough([0, 0], [0.01, 0])).toBe(true)
   })
 
   it('returns false for a wall shorter than minimum length', () => {
-    expect(isWallLongEnough([0, 0], [0.3, 0])).toBe(false)
-    expect(isWallLongEnough([0, 0], [0, 0.4])).toBe(false)
+    expect(isWallLongEnough([0, 0], [0.005, 0])).toBe(false)
+    expect(isWallLongEnough([0, 0], [0, 0.009])).toBe(false)
   })
 
   it('returns false for zero-length wall (start equals end)', () => {
     expect(isWallLongEnough([1, 1], [1, 1])).toBe(false)
   })
 
-  it('returns false for near-zero diagonal wall', () => {
-    // sqrt(0.1^2 + 0.1^2) ≈ 0.141 < 0.5
-    expect(isWallLongEnough([0, 0], [0.1, 0.1])).toBe(false)
+  it('returns true for diagonal walls above minimum', () => {
+    // sqrt(0.1^2 + 0.1^2) ≈ 0.141 > 0.01
+    expect(isWallLongEnough([0, 0], [0.1, 0.1])).toBe(true)
   })
 
   it('handles walls with negative coordinates', () => {
     expect(isWallLongEnough([-2, -3], [-1, -3])).toBe(true) // length=1
-    expect(isWallLongEnough([-0.1, 0], [0.1, 0])).toBe(false) // length=0.2
+    expect(isWallLongEnough([-0.1, 0], [0.1, 0])).toBe(true) // length=0.2 > 0.01
   })
 
   it('returns true for long diagonal wall', () => {
