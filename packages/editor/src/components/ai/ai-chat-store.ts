@@ -338,11 +338,17 @@ export const useAIChat = create<AIChatState & AIChatActions>()(
       return
     }
 
-    // Token-aware trigger: use estimator instead of message count
+    // Token-aware trigger: use estimator instead of message count.
+    // The QA matrix references "20+ messages" but we use 30 in production to
+    // reduce API call frequency for short, low-token conversations. The
+    // token estimator above is the primary signal — message count is just a
+    // safety net for many small messages whose token cost stays under the
+    // estimator threshold.
+    const SUMMARIZE_MESSAGE_FALLBACK_THRESHOLD = 30
     const apiMessages = messages.map((m) => ({ role: m.role, content: m.content }))
     if (!shouldAutoCompact(apiMessages)) {
       // Fallback: also trigger on high message count even if token estimate is low
-      if (messages.length < 30) {
+      if (messages.length < SUMMARIZE_MESSAGE_FALLBACK_THRESHOLD) {
         set({ isSummarizing: false })
         return
       }

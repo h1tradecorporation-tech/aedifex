@@ -256,6 +256,27 @@ describe('streamChat — tool call parsing', () => {
     controller.abort()
   })
 
+  // Regression: connection drops mid-stream BEFORE finish_reason arrives.
+  // The flush logic at end-of-stream must still emit accumulated tools, otherwise
+  // a network blip silently swallows the AI's intent.
+  it('flushes accumulated tool calls when stream ends without finish_reason', async () => {
+    const stream = makeStream([
+      makeToolCallChunk(0, 'call_drop', 'add_item', '{"catalogSlug":"sofa-modern","position":[0,0,0],"rotationY":0}'),
+      // No makeFinishChunk — stream just closes.
+    ])
+    mockFetchOk(stream)
+
+    const cbs = makeCallbacks()
+    const controller = streamChat(baseRequest, cbs)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(cbs.toolCalls).toHaveLength(1)
+    expect((cbs.toolCalls[0] as { tool: string }).tool).toBe('add_item')
+    expect(cbs.completes).toHaveLength(1)
+    controller.abort()
+  })
+
   it('calls onToolCall for each parsed tool call', async () => {
     const stream = makeStream([
       makeToolCallChunk(0, 'call_1', 'add_item', '{"catalogSlug":"desk","position":[2,0,3],"rotationY":0}'),
