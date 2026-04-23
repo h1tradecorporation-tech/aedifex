@@ -49,13 +49,29 @@ export interface CatalogResolveResult {
   shapeWarning?: string
 }
 
+/** Minimum fuzzy score to accept a match (vs falling back to suggestions). */
+const FUZZY_MATCH_THRESHOLD = 0.3
+
+/**
+ * Tokenize a slug or item id/name for token-based fuzzy matching. Splits on
+ * `-`, `_`, whitespace and camelCase boundaries so "ceiling-lamp" and
+ * "lamp ceiling" produce overlapping token sets `{ceiling, lamp}`.
+ */
+function tokenize(input: string): string[] {
+  return input
+    .toLowerCase()
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(/[-_\s]+/u)
+    .filter((t) => t.length > 0)
+}
+
 /**
  * Resolve a catalog slug (id) to a full AssetInput object.
  * Falls back to name matching, then fuzzy matching.
  */
 export function resolveCatalogSlug(slug: string): CatalogResolveResult {
-  // Guard against undefined/null slug
-  if (!slug) {
+  // Guard against undefined / null / whitespace-only slug
+  if (!slug || !slug.trim()) {
     return { asset: null, matchType: 'none' }
   }
 
@@ -71,33 +87,38 @@ export function resolveCatalogSlug(slug: string): CatalogResolveResult {
     return { asset: byName, matchType: 'name' }
   }
 
-  // 3. Fuzzy match: find items whose id or name contains the slug
-  const normalizedSlug = slug.toLowerCase().replace(/[-_\s]+/g, '')
+  // 3. Fuzzy match — token-based overlap (Jaccard-like).
+  // Substring match alone fails for reordered words ("lamp ceiling" → "ceiling-lamp").
+  // Token overlap survives word reordering and partial token matches.
+  const slugTokens = new Set(tokenize(slug))
+  if (slugTokens.size === 0) {
+    return { asset: null, matchType: 'none', suggestions: findSuggestions(slug) }
+  }
+
   let bestMatch: AssetInput | null = null
   let bestScore = 0
 
   for (const item of CATALOG_ITEMS) {
-    const normalizedId = item.id.toLowerCase().replace(/[-_\s]+/g, '')
-    const normalizedName = item.name.toLowerCase().replace(/[-_\s]+/g, '')
+    const itemTokens = new Set([...tokenize(item.id), ...tokenize(item.name)])
+    if (itemTokens.size === 0) continue
 
-    let score = 0
-
-    // Substring match in id
-    if (normalizedId.includes(normalizedSlug)) {
-      score = normalizedSlug.length / normalizedId.length
-    }
-    // Substring match in name
-    if (normalizedName.includes(normalizedSlug)) {
-      const nameScore = normalizedSlug.length / normalizedName.length
-      score = Math.max(score, nameScore)
-    }
-    // Reverse: slug contains item id
-    if (normalizedSlug.includes(normalizedId)) {
-      const reverseScore = normalizedId.length / normalizedSlug.length * 0.8
-      score = Math.max(score, reverseScore)
+    // Count tokens that exist in both sets (exact match) OR where one is a
+    // substring of the other (handles plurals, e.g. "lamp" ↔ "lamps").
+    let matched = 0
+    for (const st of slugTokens) {
+      for (const it of itemTokens) {
+        if (st === it || (st.length >= 3 && it.includes(st)) || (it.length >= 3 && st.includes(it))) {
+          matched++
+          break
+        }
+      }
     }
 
-    if (score > bestScore && score > 0.3) {
+    // Score = matched / max(slug, item) — penalises both missing user tokens
+    // and noisy item tokens. Equal weight to recall and precision.
+    const score = matched / Math.max(slugTokens.size, itemTokens.size)
+
+    if (score > bestScore && score >= FUZZY_MATCH_THRESHOLD) {
       bestScore = score
       bestMatch = item
     }
@@ -167,13 +188,17 @@ function detectShapeMismatch(slug: string, resolved: AssetInput): string | undef
 function findSuggestions(slug: string): AssetInput[] {
   const lower = slug.toLowerCase()
 
-  // Category keywords mapping
+  // Category keywords mapping. Keep in sync with CATALOG_ITEMS categories.
+  // When you add a new category, add the words a user might describe it with —
+  // not the catalog ID itself (those are matched by the fuzzy step above).
   const categoryKeywords: Record<string, string[]> = {
-    furniture: ['sofa', 'couch', 'chair', 'table', 'desk', 'bed', 'shelf', 'cabinet', 'closet', 'dresser', 'lamp', 'carpet', 'rug'],
-    kitchen: ['kitchen', 'stove', 'fridge', 'microwave', 'counter', 'sink', 'cook'],
-    bathroom: ['bathroom', 'toilet', 'shower', 'bathtub', 'sink', 'wash'],
-    outdoor: ['outdoor', 'tree', 'plant', 'fence', 'garden', 'patio'],
-    appliance: ['tv', 'television', 'computer', 'speaker', 'fan', 'ac', 'air'],
+    furniture: ['sofa', 'couch', 'chair', 'table', 'desk', 'bed', 'shelf', 'cabinet', 'closet', 'dresser', 'lamp', 'carpet', 'rug', 'stool', 'bench'],
+    kitchen: ['kitchen', 'stove', 'fridge', 'microwave', 'counter', 'sink', 'cook', 'oven', 'dishwasher'],
+    bathroom: ['bathroom', 'toilet', 'shower', 'bathtub', 'sink', 'wash', 'mirror'],
+    outdoor: ['outdoor', 'tree', 'plant', 'fence', 'garden', 'patio', 'pool', 'grill', 'bbq', 'umbrella', 'vehicle', 'car', 'bike'],
+    appliance: ['appliance', 'tv', 'television', 'computer', 'monitor', 'speaker', 'fan', 'ac', 'air', 'heater', 'charger', 'ev', 'vacuum', 'router'],
+    decor: ['decor', 'painting', 'art', 'vase', 'plant', 'sculpture', 'frame', 'clock', 'mirror'],
+    lighting: ['light', 'lamp', 'chandelier', 'sconce', 'pendant', 'bulb'],
   }
 
   for (const [category, keywords] of Object.entries(categoryKeywords)) {

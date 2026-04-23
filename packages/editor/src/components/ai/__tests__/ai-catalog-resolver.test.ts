@@ -130,11 +130,37 @@ describe('resolveCatalogSlug', () => {
       expect(result.matchType).toBe('exact')
       expect(result.asset!.id).toBe('wall-painting')
     })
+
+    // Regression: token-based matching survives word reordering. Previous
+    // substring-only normalization made 'lampceiling' fail vs 'ceilinglamp'.
+    it('matches reordered words ("lamp ceiling" → ceiling-lamp)', () => {
+      const result = resolveCatalogSlug('lamp ceiling')
+      expect(result.asset).not.toBeNull()
+      expect(result.asset!.id).toBe('ceiling-lamp')
+    })
+
+    it('matches when user adds an extra descriptor word', () => {
+      const result = resolveCatalogSlug('modern dining table')
+      expect(result.asset).not.toBeNull()
+      expect(result.asset!.id).toBe('dining-table')
+    })
+
+    it('rejects slugs with score below threshold (returns suggestions, not bad match)', () => {
+      // Single short noise word — token overlap stays under FUZZY_MATCH_THRESHOLD (0.3).
+      const result = resolveCatalogSlug('xyz')
+      expect(result.asset).toBeNull()
+    })
   })
 
   describe('no match', () => {
     it('returns null for completely unknown slugs', () => {
       const result = resolveCatalogSlug('quantum-flux-capacitor')
+      expect(result.asset).toBeNull()
+      expect(result.matchType).toBe('none')
+    })
+
+    it('treats whitespace-only slug as empty (no crash, no match)', () => {
+      const result = resolveCatalogSlug('   ')
       expect(result.asset).toBeNull()
       expect(result.matchType).toBe('none')
     })
