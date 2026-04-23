@@ -117,7 +117,7 @@ function serializeWallNode(
     end: [...wallNode.end] as [number, number],
     thickness: wallNode.thickness ?? 0.2,
     length: wallLen,
-    ...(typeof wallNode.curveOffset === 'number' && wallNode.curveOffset !== 0
+    ...(Number.isFinite(wallNode.curveOffset) && wallNode.curveOffset !== 0
       ? { curveOffset: wallNode.curveOffset }
       : {}),
     ...(hasWallMaterial ? { hasMaterial: true } : {}),
@@ -292,7 +292,7 @@ function serializeFenceNode(
     thickness: f.thickness ?? 0.08,
     style: f.style ?? 'slat',
     baseStyle: f.baseStyle ?? 'grounded',
-    ...(typeof f.curveOffset === 'number' && f.curveOffset !== 0 ? { curveOffset: f.curveOffset } : {}),
+    ...(Number.isFinite(f.curveOffset) && f.curveOffset !== 0 ? { curveOffset: f.curveOffset } : {}),
     ...(f.color ? { color: f.color } : {}),
     ...(hasFenceMaterial ? { hasMaterial: true } : {}),
   })
@@ -372,12 +372,19 @@ export function serializeSceneContext(): SceneContext {
     const node = nodes[nodeId]
     if (!node) continue
 
-    // Skip ghost preview nodes — these are transient previews that haven't been
-    // confirmed yet and should not be reported to the LLM as actual scene content.
-    // Only check isGhostPreview (not isGhostRemoval/isTransient) to avoid hiding
-    // legitimate nodes that may still have stale metadata after reject/undo.
+    // Skip ghost preview / removal / hidden nodes — these are transient and should
+    // not be reported to the LLM as actual scene content. Mid-batch tool calls
+    // would otherwise see "deleted" walls as still present.
+    // Mirrors the same filter used by spatial-queries.ts so spatial reasoning
+    // and scene summaries agree.
     const meta = node.metadata as Record<string, unknown> | undefined
-    if (meta?.isGhostPreview === true) continue
+    if (
+      meta?.isGhostPreview === true
+      || meta?.isGhostRemoval === true
+      || (node as { visible?: boolean }).visible === false
+    ) {
+      continue
+    }
 
     switch (node.type) {
       case 'item':
@@ -700,6 +707,8 @@ export function formatSceneContextForPrompt(ctx: SceneContext): string {
         for (const item of ctx.items) {
           const cx = item.position[0]
           const cz = item.position[2]
+          // Defensive: schema can drift to omit Z; never silently miscount the quadrant.
+          if (typeof cx !== 'number' || typeof cz !== 'number') continue
           // Skip items outside this zone's bounds entirely
           if (cx < zone.bounds.min[0] || cx > zone.bounds.max[0] || cz < zone.bounds.min[1] || cz > zone.bounds.max[1]) continue
           // Assign to quadrant: bit 0 = right half (X >= midX), bit 1 = bottom half (Z >= midZ)
