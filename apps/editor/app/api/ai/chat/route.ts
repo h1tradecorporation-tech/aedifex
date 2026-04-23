@@ -73,28 +73,33 @@ export async function POST(request: NextRequest) {
   const openai = createAIClient()
 
   try {
-    const stream = await openai.chat.completions.create({
-      model: AI_CHAT_MODEL,
-      max_tokens: AI_CHAT_MAX_TOKENS,
-      tools: OPENAI_TOOLS,
-      stream: true,
-      messages: [
-        { role: 'system' as const, content: systemPrompt },
-        ...messages.map((m) => {
-          if (m.role === 'tool' && m.tool_call_id) {
-            return {
-              role: 'tool' as const,
-              content: m.content,
-              tool_call_id: m.tool_call_id,
+    // Forward client abort to the upstream LLM call so we don't keep paying for
+    // tokens after the user cancelled. Without this, OpenAI keeps generating.
+    const stream = await openai.chat.completions.create(
+      {
+        model: AI_CHAT_MODEL,
+        max_tokens: AI_CHAT_MAX_TOKENS,
+        tools: OPENAI_TOOLS,
+        stream: true,
+        messages: [
+          { role: 'system' as const, content: systemPrompt },
+          ...messages.map((m) => {
+            if (m.role === 'tool' && m.tool_call_id) {
+              return {
+                role: 'tool' as const,
+                content: m.content,
+                tool_call_id: m.tool_call_id,
+              }
             }
-          }
-          return {
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          }
-        }),
-      ],
-    })
+            return {
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            }
+          }),
+        ],
+      },
+      { signal: request.signal },
+    )
 
     const encoder = new TextEncoder()
     const readable = new ReadableStream({
@@ -106,7 +111,11 @@ export async function POST(request: NextRequest) {
             )
           }
         } catch (err) {
-          console.error('Stream error:', err)
+          // AbortError is the normal path when the client cancels mid-stream;
+          // don't log it as a real error.
+          if ((err as { name?: string })?.name !== 'AbortError') {
+            console.error('Stream error:', err)
+          }
         } finally {
           try {
             controller.close()
@@ -125,7 +134,13 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (err) {
-    const error = err as { status?: number; message?: string }
+    const error = err as { status?: number; message?: string; name?: string }
+
+    // Client cancelled before the upstream call returned — exit silently with 499
+    // (nginx convention for "client closed request"). No console noise, no 502.
+    if (error.name === 'AbortError' || request.signal.aborted) {
+      return new Response(null, { status: 499 })
+    }
 
     if (error.status === 429) {
       console.error('Upstream AI API rate limit:', error.message)
