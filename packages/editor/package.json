@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.tsx",
     "./catalog": "./src/components/ui/item-catalog/catalog-items.tsx",
-    "./ai/prompt": "./src/components/ai/prompt/index.ts"
+    "./ai/prompt": "./src/components/ai/prompt/index.ts",
+    "./components/ai": "./src/components/ai/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"
