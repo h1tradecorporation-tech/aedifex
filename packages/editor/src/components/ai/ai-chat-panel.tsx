@@ -258,7 +258,7 @@ export function AIChatPanel() {
         <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
-            className="max-h-[120px] min-h-[36px] flex-1 resize-none rounded-lg border border-input bg-accent/30 px-3 py-2 font-barlow text-sm shadow-xs outline-none placeholder:text-muted-foreground/50 focus:border-sidebar-primary/50 focus:ring-1 focus:ring-sidebar-primary/20"
+            className="subtle-scrollbar max-h-[120px] min-h-[36px] flex-1 resize-none rounded-lg border border-input bg-accent/30 px-3 py-2 font-barlow text-sm shadow-xs outline-none placeholder:text-muted-foreground/50 focus:border-sidebar-primary/50 focus:ring-1 focus:ring-sidebar-primary/20"
             disabled={isStreaming || (isAIProcessing && !pendingQuestion)}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
