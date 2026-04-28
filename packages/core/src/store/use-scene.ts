@@ -444,7 +444,7 @@ const useScene: UseSceneStore = create<SceneState>()(
         // Remove orphans: nodes whose parentId points to a non-existent node
         const cleanedNodes = { ...patchedNodes }
         for (const node of Object.values(cleanedNodes)) {
-          if (node.parentId && !cleanedNodes[node.parentId]) {
+          if (node.parentId && !cleanedNodes[node.parentId as AnyNodeId]) {
             console.warn(
               '[Scene] Removing orphan node',
               node.id,
@@ -453,6 +453,44 @@ const useScene: UseSceneStore = create<SceneState>()(
               'not found)',
             )
             delete cleanedNodes[node.id]
+          }
+        }
+
+        // Re-attach orphan levels (parentId === null) to the first building.
+        // Levels must live under a building; orphans appear when an older
+        // schema or a buggy AI tool created a level without a buildingId.
+        // Without this, the level renders correctly but is invisible in the
+        // floating level selector (which lists only the active building's
+        // children), making the floor un-selectable from the UI.
+        const firstBuilding = Object.values(cleanedNodes).find(
+          (n) => n.type === 'building',
+        ) as BuildingNode | undefined
+        if (firstBuilding) {
+          const buildingChildren = new Set<AnyNodeId>(
+            firstBuilding.children as AnyNodeId[],
+          )
+          let mutated = false
+          for (const node of Object.values(cleanedNodes)) {
+            if (node.type === 'level' && node.parentId === null) {
+              console.warn(
+                '[Scene] Re-attaching orphan level',
+                node.id,
+                'to building',
+                firstBuilding.id,
+              )
+              cleanedNodes[node.id] = {
+                ...node,
+                parentId: firstBuilding.id,
+              } as AnyNode
+              buildingChildren.add(node.id as AnyNodeId)
+              mutated = true
+            }
+          }
+          if (mutated) {
+            cleanedNodes[firstBuilding.id] = {
+              ...firstBuilding,
+              children: Array.from(buildingChildren),
+            } as AnyNode
           }
         }
 

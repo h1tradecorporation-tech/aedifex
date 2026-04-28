@@ -351,11 +351,32 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
       }
       case 'add_level': {
         const levelOp = op as ValidatedAddLevel
+        // Validate buildingId. AI tools occasionally pass a stale or
+        // missing buildingId, which previously created a level with
+        // parentId=null (an orphan) — invisible in the level selector
+        // and a source of stacking bugs. Fall back to the first building.
+        let targetBuildingId = levelOp.buildingId
+        const target = nodes[targetBuildingId]
+        if (!target || target.type !== 'building') {
+          const fallback = Object.values(nodes).find(
+            (n) => n.type === 'building',
+          ) as BuildingNode | undefined
+          if (!fallback) {
+            console.warn(
+              '[add_level] No building exists in scene; skipping operation',
+            )
+            break
+          }
+          console.warn(
+            `[add_level] buildingId ${levelOp.buildingId} not found, falling back to ${fallback.id}`,
+          )
+          targetBuildingId = fallback.id
+        }
         const levelNode = LevelNode.parse({
           name: levelOp.name ?? `Level ${levelOp.level}`,
           level: levelOp.level,
         })
-        useScene.getState().createNode(levelNode, levelOp.buildingId)
+        useScene.getState().createNode(levelNode, targetBuildingId)
         affectedNodeIds.push(levelNode.id as AnyNodeId)
         createdNodeIds.push(levelNode.id as AnyNodeId)
         // Auto-switch to the new level
@@ -568,6 +589,31 @@ export function confirmGhostPreview(operations: ValidatedOperation[]): AIOperati
       }
       case 'add_building': {
         const bldOp = op as ValidatedAddBuilding
+        // Reuse the first existing building when one is already present.
+        // AI tools sometimes call add_building redundantly (e.g. when
+        // applying a template on top of an existing scene), which produced
+        // multi-building scenes whose levels stacked incorrectly. Treat
+        // add_building as upsert: update name/position on the existing
+        // building instead of creating a sibling.
+        const existing = Object.values(nodes).find(
+          (n) => n.type === 'building',
+        ) as BuildingNode | undefined
+        if (existing) {
+          const updates: Record<string, unknown> = {}
+          if (bldOp.name) updates.name = bldOp.name
+          if (bldOp.position) updates.position = bldOp.position
+          if (Object.keys(updates).length > 0) {
+            useScene.getState().updateNode(existing.id as AnyNodeId, updates)
+          }
+          affectedNodeIds.push(existing.id as AnyNodeId)
+          // Switch selection to the building's first level if available
+          const firstLevelId = existing.children[0]
+          if (firstLevelId) {
+            useViewer.getState().setSelection({ levelId: firstLevelId })
+          }
+          break
+        }
+
         // Find site node
         const site = Object.values(nodes).find(n => n.type === 'site')
         const bldCount = getCachedTypeCount('building')
