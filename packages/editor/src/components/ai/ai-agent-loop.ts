@@ -358,30 +358,15 @@ export async function runAgentLoop({
         }
 
         // Terminal check: only confirm_preview/reject_preview are truly terminal.
-        // Pure bulk removes (≥2) also break to let the user review.
+        // All other mutations — including bulk removes — auto-confirm. The
+        // system prompt requires the LLM to call ask_user before any bulk
+        // destructive operation, so a separate UI preview/confirm step would
+        // be a redundant second confirmation.
         const isTerminalTool = mutationCalls.every((tc) => DETERMINISTIC_TOOLS.has(tc.tool))
-        // Check if all mutations are remove operations — including batch_operations
-        // that contain only remove_node/remove_item internally.
-        const isPureRemove = mutationCalls.every((tc) => {
-          if (tc.tool === 'remove_item' || tc.tool === 'remove_node') return true
-          if (tc.tool === 'batch_operations' && 'operations' in tc) {
-            const ops = (tc as { operations: Record<string, unknown>[] }).operations
-            return ops.length > 0 && ops.every((op) => {
-              const opType = (op.type as string) ?? ''
-              return opType === 'remove_item' || opType === 'remove_node'
-            })
-          }
-          return false
-        })
-        // Count actual remove operations (batch_operations may contain many)
-        const totalRemoveOps = isPureRemove
-          ? validated.filter((op) => op.type === 'remove_item' || op.type === 'remove_node').length
-          : 0
-        const isBulkRemove = isPureRemove && totalRemoveOps >= 2
 
-        if (isTerminalTool || (isBulkRemove && validOps.length > 0)) {
-          // Terminal: auto-confirm non-remove ops, then exit loop
-          if (!isPureRemove && isGhostPreviewActive()) {
+        if (isTerminalTool) {
+          // Terminal: auto-confirm any pending ops, then exit loop
+          if (isGhostPreviewActive() && validOps.length > 0) {
             const log = confirmGhostPreview(validOps)
             invalidateSceneCache()
             if (lastMessageId) {

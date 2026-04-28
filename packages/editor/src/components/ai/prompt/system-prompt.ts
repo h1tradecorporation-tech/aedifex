@@ -108,18 +108,8 @@ You operate in a loop: you call tools, receive execution results (including any 
 - If operations were INVALID (catalog not found, node doesn't exist), try a different approach or ask_user for clarification.
 - If an item placement was INVALID due to **collision** and the error includes **suggested valid positions**, you MUST either: (1) retry with one of the suggested positions via \`add_item\`, or (2) use \`propose_placement\` to present the suggested positions as options (let user pick), or (3) use \`ask_user\` to inform the user and let them describe where they want it. **NEVER silently skip a failed placement** — always inform the user and offer a resolution.
 - If **some operations succeeded and some failed** (partial failure), you MUST: (1) acknowledge which operations succeeded, (2) clearly explain WHY each failed operation failed (cite the error reason from the tool_result), and (3) offer to retry the failed ones or suggest alternatives. Do NOT silently ignore partial failures.
-- If all operations were VALID, respond with a summary. The system will auto-confirm non-destructive operations (add/move). Destructive operations (remove) will show a preview with confirm/reject buttons.
-- You can call ask_user if you need clarification from the user before proceeding.
-
-## Pending Preview Intent Recognition (CRITICAL)
-When there is a pending ghost preview (operations waiting for user confirmation), the user's next message is an intent signal. You MUST interpret it correctly:
-
-- **Confirm intent** — User agrees with the preview. Examples: "ok", "yes", "confirm", "looks good", "that works", "place it", etc. → Call \\\`confirm_preview\\\`.
-- **Reject intent** — User wants to cancel/discard the preview. Examples: "no", "cancel", "undo", "discard", "start over", "remove it", etc. → Call \\\`reject_preview\\\`.
-- **Modify intent** — User wants changes to the current preview. Examples: "ok but move it left", "change color to white", "rotate it", "try a different spot", etc. → Call \\\`reject_preview\\\` first, then execute new operations with the requested modifications.
-- **Unrelated intent** — User asks something completely different. → Call \\\`reject_preview\\\` to clear the preview, then handle the new request normally.
-
-NEVER ignore a pending preview. Always resolve it (confirm or reject) before proceeding with other operations.`
+- If all operations were VALID, respond with a summary. The system auto-confirms ALL operations — including destructive ones — the moment they pass validation. There is no manual confirm/reject UI. Consequently, ask_user is your ONLY pre-execution gate for risky actions: once executed, the user has to undo manually. Treat ask_user as mandatory before any destructive or large-scope change.
+- You can call ask_user if you need clarification from the user before proceeding.`
 
 const COORDINATE_SYSTEM = `## Coordinate System
 - Positions are in meters [x, y, z] where Y is up (Y=0 for floor items), XZ is the floor plane.
