@@ -84,43 +84,31 @@ export function snapLevelsToTruePositions(): () => void {
     index: number
   }
 
-  // Group by parentId so each building stacks independently — mirrors
-  // LevelSystem's grouping logic to keep render snapshots consistent.
-  const groups = new Map<string | null, LevelEntry[]>()
+  const entries: LevelEntry[] = []
   sceneRegistry.byType.level.forEach((levelId) => {
     const obj = sceneRegistry.nodes.get(levelId)
     const level = nodes[levelId as LevelNode['id']]
-    if (!obj || !level) return
-    const groupKey = level.parentId ?? null
-    const entry: LevelEntry = { levelId, index: (level as any).level ?? 0, obj }
-    const bucket = groups.get(groupKey)
-    if (bucket) bucket.push(entry)
-    else groups.set(groupKey, [entry])
+    if (obj && level) {
+      entries.push({ levelId, index: (level as any).level ?? 0, obj })
+    }
   })
-
-  const allEntries: LevelEntry[] = []
-  for (const entries of groups.values()) {
-    entries.sort((a, b) => a.index - b.index)
-    allEntries.push(...entries)
-  }
+  entries.sort((a, b) => a.index - b.index)
 
   // Snapshot current Y and visibility so we can restore them after the render
   const snapshot = new Map(
-    allEntries.map(({ levelId, obj }) => [levelId, { y: obj.position.y, visible: obj.visible }]),
+    entries.map(({ levelId, obj }) => [levelId, { y: obj.position.y, visible: obj.visible }]),
   )
 
-  // Snap each group to true stacked positions starting from Y=0
-  for (const entries of groups.values()) {
-    let cumulativeY = 0
-    for (const { levelId, obj } of entries) {
-      obj.position.y = cumulativeY
-      obj.visible = true
-      cumulativeY += getLevelHeight(levelId, nodes)
-    }
+  // Snap to true stacked positions and make all levels visible
+  let cumulativeY = 0
+  for (const { levelId, obj } of entries) {
+    obj.position.y = cumulativeY
+    obj.visible = true
+    cumulativeY += getLevelHeight(levelId, nodes)
   }
 
   return () => {
-    for (const { levelId, obj } of allEntries) {
+    for (const { levelId, obj } of entries) {
       const saved = snapshot.get(levelId)
       if (saved !== undefined) {
         obj.position.y = saved.y
