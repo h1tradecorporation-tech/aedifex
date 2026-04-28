@@ -55,6 +55,11 @@ export interface AIChatState {
 
   // Feature flag
   isEnabled: boolean
+
+  // Project context — chat history is scoped per project. When the active
+  // project changes, the store auto-clears so messages from project A do
+  // not leak into project B's panel.
+  currentProjectId: string | null
 }
 
 export interface AIChatActions {
@@ -107,6 +112,12 @@ export interface AIChatActions {
   clearChat: () => void
   clearError: () => void
 
+  // Project switching — call when the editor mounts a project. If the
+  // projectId differs from the previously active one, clears chat to
+  // prevent cross-project leakage. No-op when projectId is unchanged
+  // (e.g. on page refresh of the same project).
+  setProjectContext: (projectId: string) => void
+
   // Get conversation history for API calls
   getConversationHistory: () => { role: 'user' | 'assistant'; content: string }[]
 }
@@ -131,6 +142,7 @@ export const useAIChat = create<AIChatState & AIChatActions>()(
   pendingQuestion: null,
   totalTokensUsed: 0,
   isEnabled: true,
+  currentProjectId: null,
 
   // Message actions
   addUserMessage: (content) => {
@@ -477,6 +489,15 @@ export const useAIChat = create<AIChatState & AIChatActions>()(
     })
   },
 
+  setProjectContext: (projectId) => {
+    const current = get().currentProjectId
+    if (current === projectId) return
+    // Different project — wipe history before switching context, then
+    // record the new id so subsequent calls in the same project no-op.
+    get().clearChat()
+    set({ currentProjectId: projectId })
+  },
+
   clearError: () => {
     set({ error: null })
   },
@@ -519,6 +540,9 @@ export const useAIChat = create<AIChatState & AIChatActions>()(
       })),
       conversationSummary: state.conversationSummary,
       operationLog: state.operationLog,
+      // Persist the project id so refreshing the same project keeps history,
+      // while navigating to a different project triggers a clearChat.
+      currentProjectId: state.currentProjectId,
     }) as unknown as AIChatState & AIChatActions,
     onRehydrateStorage: () => {
       return (state?: AIChatState & AIChatActions) => {
