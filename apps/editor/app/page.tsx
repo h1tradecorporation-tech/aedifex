@@ -6,12 +6,18 @@ import {
   ViewerToolbarLeft,
   ViewerToolbarRight,
 } from '@aedifex/editor'
+import { AIChatPanel } from '@aedifex/editor/components/ai'
 
 const SIDEBAR_TABS: (SidebarTab & { component: React.ComponentType })[] = [
   {
     id: 'site',
     label: 'Scene',
-    component: () => null, // Built-in SitePanel handles this
+    component: () => null,
+  },
+  {
+    id: 'ai-chat',
+    label: 'AI Chat',
+    component: AIChatPanel,
   },
 ]
 
