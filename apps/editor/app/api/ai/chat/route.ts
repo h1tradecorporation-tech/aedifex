@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
 
     console.error('AI API error:', error.message)
     return NextResponse.json(
-      { error: 'AI service error. Please try again.' },
+      { error: `AI service error: ${error.message ?? 'unknown'}` },
       { status: 502 },
     )
   }
